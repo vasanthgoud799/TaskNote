@@ -17,7 +17,7 @@
 
 .login-box {
     background: rgba(22, 33, 62, 0.95);
-    padding: 50px;
+    padding: 60px;
     border-radius: 12px;
     box-shadow: 0 12px 35px rgba(0, 0, 0, 0.4);
     max-width: 600px;
@@ -33,7 +33,7 @@
 }
 
 .login-title {
-    font-size: 28px;
+    font-size: 36px;
     font-weight: bold;
     color: white;
     margin-bottom: 20px;
