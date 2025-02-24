@@ -4,6 +4,8 @@ import "./Register.css";
 import React, { useState } from "react";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { SIGNUP_ROUTE } from "../utils/constant";
+import { apiClient } from "../lib/api-client";
 
 export default function Register() {
   const navigate = useNavigate();
