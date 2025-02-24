@@ -2,6 +2,10 @@ import React, { useState } from "react";
 import { FiHome, FiUser, FiMoon, FiTrash2, FiLogOut, FiMenu } from "react-icons/fi";
 import "./home.css";
 import Profile from "../components/Profile";
+import { apiClient } from "../lib/api-client";
+import { LOGOUT_ROUTE } from "../utils/constant";
+import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 // Sample components for each section
 const HomeSection = () => <div className="section-content"><h2>Home</h2></div>;
 
@@ -9,6 +13,7 @@ const ThemeSection = () => <div className="section-content"><h2>Theme</h2></div>
 const DeletedNotes = () => <div className="section-content"><h2>Deleted Notes</h2></div>;
 
 const Home = () => {
+  const navigate=useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeSection, setActiveSection] = useState("Home");
 
@@ -21,7 +26,26 @@ const Home = () => {
       default: return <Home />;
     }
   };
+   
+  const handleLogout = async() => {
+    try {
+        const response = await apiClient.post(
+            LOGOUT_ROUTE,
+            {},
+            { withCredentials: true }
+        );
 
+        if (response.status === 200) {
+            // Update user information in the store
+            navigate("/login");
+            toast.success("Logged Out Successfully");
+            // setUserInfo(null);
+        }
+    } catch (error) {
+        console.error("Error logging out:", error.response?.data?.message || error.message);
+        toast.error("Failed to logout");
+    }
+};
   return (
     <div className="container">
       {/* Sidebar */}
@@ -39,7 +63,7 @@ const Home = () => {
           <SidebarItem Icon={FiTrash2} label="Deleted" onClick={() => setActiveSection("Deleted Notes")} isActive={activeSection === "Deleted Notes"} isSidebarOpen={isSidebarOpen} />
         </nav>
         <div className="sidebar-footer">
-          <button className="logout-btn" onClick={() => console.log("Logout")}>
+          <button className="logout-btn" onClick={handleLogout}>
             <FiLogOut />
             {isSidebarOpen && <span className="logout-text">Log out</span>}
           </button>

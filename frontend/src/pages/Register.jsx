@@ -2,10 +2,11 @@ import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import "./Register.css";
 import React, { useState } from "react";
-import { toast } from "react-toastify";
+
 import "react-toastify/dist/ReactToastify.css";
 import { SIGNUP_ROUTE } from "../utils/constant";
 import { apiClient } from "../lib/api-client";
+import { toast } from "sonner";
 
 export default function Register() {
   const navigate = useNavigate();

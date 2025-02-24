@@ -95,7 +95,8 @@
   width: 100%;
   color: #e53e3e;
   cursor: pointer;
-  font-weight: 400;
+  gap:10px;
+  font-size:1.5rem;
   transition: color 0.2s ease;
 }
 

@@ -3,10 +3,11 @@ import { useNavigate } from "react-router-dom";
 import "./Login.css";
 import React from "react";
 import { useState } from "react";
-import { toast } from "react-toastify";
+
 import "react-toastify/dist/ReactToastify.css";
 import { LOGIN_ROUTE } from "../utils/constant";
 import { apiClient } from "../lib/api-client";
+import { toast } from "sonner";
 export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
