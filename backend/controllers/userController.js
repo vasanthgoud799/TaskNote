@@ -166,16 +166,16 @@ export const signUp = async (req, res) => {
 //   }
 // };
 
-// export const logout = async (req, res) => {
-//   try {
-//     res.cookie("jwt", "", {
-//       dur: 0,
-//       secure: true,
-//       sameSite: "None",
-//     });
-//     return res.status(200).send("Logout Successful");
-//   } catch (error) {
-//     console.error("Error logging out", error);
-//     res.status(500).json({ message: "Error Logging out", error });
-//   }
-// };
+export const logout = async (req, res) => {
+  try {
+    res.cookie("jwt", "", {
+      dur: 0,
+      secure: true,
+      sameSite: "None",
+    });
+    return res.status(200).send("Logout Successful");
+  } catch (error) {
+    console.error("Error logging out", error);
+    res.status(500).json({ message: "Error Logging out", error });
+  }
+};
