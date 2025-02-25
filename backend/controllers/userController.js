@@ -43,6 +43,7 @@ export const login = async (req, res) => {
         lastName: user.lastName,
         image: user.image,
         gender: user.gender,
+        notes: user.notes,
       },
     });
   } catch (err) {
@@ -93,27 +94,29 @@ export const signUp = async (req, res) => {
   }
 };
 
-// export const getUserInfo = async (req, res, next) => {
-//   try {
-//     const userData = await User.findById(req.userId);
-//     if (!userData) {
-//       return res.status(404).send("User with given id not found");
-//     }
-//     return res.status(200).json({
-//       id: userData.id,
-//       email: userData.email,
-//       profileSetUp: userData.profileSetup,
-//       firstName: userData.firstName,
-//       lastName: userData.lastName,
-//       image: userData.image,
-//       friends: userData.friends,
-//       blockedUsers: userData.blockedUsers,
-//     });
-//   } catch (err) {
-//     console.error("Error during sign up:", err);
-//     return res.status(500).json({ message: "Internal Server Error" });
-//   }
-// };
+export const getUserInfo = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+
+    if (!user) {
+      return res.status(404).send("User with given id not found");
+    }
+    return res.status(200).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        image: user.image,
+        gender: user.gender,
+        notes: user.notes,
+      },
+    });
+  } catch (err) {
+    console.error("Error during sign up:", err);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
 
 // // controllers/AuthController.js
 
