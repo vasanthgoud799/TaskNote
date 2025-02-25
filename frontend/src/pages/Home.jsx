@@ -1,53 +1,75 @@
-import React, { useState } from "react";
-import { FiHome, FiUser, FiMoon, FiTrash2, FiLogOut, FiMenu } from "react-icons/fi";
+import React, { useState, useEffect } from "react";
+import { FiHome, FiUser, FiMoon, FiSun, FiTrash2, FiLogOut, FiMenu } from "react-icons/fi";
 import "./home.css";
 import Profile from "../components/Profile";
 import { apiClient } from "../lib/api-client";
 import { LOGOUT_ROUTE } from "../utils/constant";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-// Sample components for each section
-const HomeSection = () => <div className="section-content"><h2>Home</h2></div>;
+import HomeSection from "../components/Home";
+import DeletedNotes from "../components/DeletedNotes";
+import { useAppStore } from "../store";
 
-const ThemeSection = () => <div className="section-content"><h2>Theme</h2></div>;
-const DeletedNotes = () => <div className="section-content"><h2>Deleted Notes</h2></div>;
+// Theme Section Component
+const ThemeSection = ({ toggleTheme, isDarkMode }) => (
+  <div className="section-content">
+    <h2>Theme Settings</h2>
+    <button className="theme-toggle-btn" onClick={toggleTheme}>
+      {isDarkMode ? <FiSun /> : <FiMoon />} Toggle {isDarkMode ? "Light" : "Dark"} Mode
+    </button>
+  </div>
+);
 
 const Home = () => {
-  const navigate=useNavigate();
+  const navigate = useNavigate();
+  const {setUserInfo}=useAppStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeSection, setActiveSection] = useState("Home");
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return localStorage.getItem("theme") === "dark";
+  });
+  
+  useEffect(() => {
+    document.body.classList.toggle("dark-theme", isDarkMode);
+    localStorage.setItem("theme", isDarkMode ? "dark" : "light");
+  }, [isDarkMode]);
+
+  const toggleTheme = () => {
+    setIsDarkMode((prev) => !prev);
+  };
 
   const renderSection = () => {
     switch (activeSection) {
-      case "Home": return <HomeSection />;
-      case "Profile": return <Profile />;
-      case "Theme": return <ThemeSection />;
-      case "Deleted Notes": return <DeletedNotes />;
-      default: return <Home />;
+      case "Home":
+        return <HomeSection />;
+      case "Profile":
+        return <Profile />;
+      case "Theme":
+        return <ThemeSection toggleTheme={toggleTheme} isDarkMode={isDarkMode} />;
+      case "Deleted Notes":
+        return <DeletedNotes />;
+      default:
+        return <Home />;
     }
   };
-   
-  const handleLogout = async() => {
-    try {
-        const response = await apiClient.post(
-            LOGOUT_ROUTE,
-            {},
-            { withCredentials: true }
-        );
 
-        if (response.status === 200) {
-            // Update user information in the store
-            navigate("/login");
-            toast.success("Logged Out Successfully");
-            // setUserInfo(null);
-        }
+  const handleLogout = async () => {
+    try {
+      const response = await apiClient.post(LOGOUT_ROUTE, {}, { withCredentials: true });
+
+      if (response.status === 200) {
+        setUserInfo(undefined);
+        navigate("/login");
+        toast.success("Logged Out Successfully");
+      }
     } catch (error) {
-        console.error("Error logging out:", error.response?.data?.message || error.message);
-        toast.error("Failed to logout");
+      console.error("Error logging out:", error.response?.data?.message || error.message);
+      toast.error("Failed to logout");
     }
-};
+  };
+
   return (
-    <div className="container">
+    <div className={`container ${isDarkMode ? "dark" : ""}`}>
       {/* Sidebar */}
       <div className={`sidebar ${isSidebarOpen ? "open" : "closed"}`}>
         <div className="sidebar-header">
@@ -59,7 +81,7 @@ const Home = () => {
         <nav className="sidebar-nav">
           <SidebarItem Icon={FiHome} label="Home" onClick={() => setActiveSection("Home")} isActive={activeSection === "Home"} isSidebarOpen={isSidebarOpen} />
           <SidebarItem Icon={FiUser} label="Profile" onClick={() => setActiveSection("Profile")} isActive={activeSection === "Profile"} isSidebarOpen={isSidebarOpen} />
-          <SidebarItem Icon={FiMoon} label="Theme" onClick={() => setActiveSection("Theme")} isActive={activeSection === "Theme"} isSidebarOpen={isSidebarOpen} />
+          <SidebarItem Icon={isDarkMode ? FiSun : FiMoon} label="Theme" onClick={() => setActiveSection("Theme")} isActive={activeSection === "Theme"} isSidebarOpen={isSidebarOpen} />
           <SidebarItem Icon={FiTrash2} label="Deleted" onClick={() => setActiveSection("Deleted Notes")} isActive={activeSection === "Deleted Notes"} isSidebarOpen={isSidebarOpen} />
         </nav>
         <div className="sidebar-footer">
@@ -72,10 +94,7 @@ const Home = () => {
 
       {/* Main Content */}
       <div className={`main-content ${isSidebarOpen ? "shifted" : ""}`}>
-       
-        
         <div className="section-container">{renderSection()}</div>
-        
       </div>
     </div>
   );

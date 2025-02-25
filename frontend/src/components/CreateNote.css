@@ -1,0 +1,147 @@
+/* Container - Adjusted to fit main content */
+.create-note-container {
+    height: 100vh;
+    display: flex;
+    width: 100%;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+/* Light & Dark Mode */
+:root {
+    --bg-color-dark: #070707;
+    --text-color-dark: white;
+    --bg-color-light: #ffffff;
+    --text-color-light: black;
+}
+
+.create-note-container.dark {
+    --bg-color: var(--bg-color-dark);
+    --text-color: var(--text-color-dark);
+}
+
+.create-note-container.light {
+    --bg-color: var(--bg-color-light);
+    --text-color: var(--text-color-light);
+}
+
+/* Main Note Box */
+.create-note {
+    width: 90%;
+    
+    height: 90vh;
+    background: var(--bg-color);
+    color: var(--text-color);
+    padding-right: 40px;
+    padding-left: 15px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 26px;
+    margin-bottom: 15px;
+}
+
+/* Star Icon */
+.star-icon {
+    font-size: 34px;
+    cursor: pointer;
+    transition: transform 0.3s ease-in-out, color 0.3s ease-in-out;
+}
+
+.star-icon.starred {
+    color: gold;
+    transform: scale(1.3);
+}
+
+/* Inputs */
+input,
+textarea {
+    width: 100%;
+    padding: 14px;
+    background: var(--text-color-dark); /* Fixed Background */
+    color: var(--bg-color-dark); /* Fixed Text Color */
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    font-size: 18px;
+    margin-bottom: 15px;
+}
+
+input:focus,
+textarea:focus {
+    outline: none;
+    border: 2px solid #3182ce;
+}
+
+/* Textarea */
+textarea {
+    height: 260px;
+    resize: none;
+}
+
+/* Categories */
+.categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 15px 0;
+}
+
+.category {
+    padding: 12px 18px;
+    font-size: 16px;
+    border-radius: 25px;
+    cursor: pointer;
+    border: 2px solid #ccc;
+    transition: all 0.2s ease-in-out;
+}
+
+.category.selected {
+    color: white;
+    background: #3182ce;
+    transform: scale(1.1);
+}
+
+/* Buttons */
+.buttons {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 20px;
+}
+
+.cancel-button,
+.create-button {
+    flex: 1;
+    padding: 16px;
+    font-size: 18px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+}
+
+.cancel-button {
+    background: #444;
+    color: white;
+    margin-right: 15px;
+}
+
+.cancel-button:hover {
+    background: #555;
+}
+
+.create-button {
+    background: #3182ce;
+    color: white;
+}
+
+.create-button:hover {
+    background: #265ea8;
+}

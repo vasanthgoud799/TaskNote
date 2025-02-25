@@ -4,12 +4,13 @@ import "./Login.css";
 import React from "react";
 import { useState } from "react";
 
-import "react-toastify/dist/ReactToastify.css";
 import { LOGIN_ROUTE } from "../utils/constant";
 import { apiClient } from "../lib/api-client";
 import { toast } from "sonner";
+import { useAppStore } from "../store";
 export default function Login() {
   const navigate = useNavigate();
+  const {setUserInfo}=useAppStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   
@@ -28,15 +29,15 @@ export default function Login() {
   };
 
   const handleLogin = async () => {
-    console.log("hek")
+    
     if (validateLogin()) {
-      console.log("hes")
+      
       try {
         const response = await apiClient.post(LOGIN_ROUTE, { email, password }, { withCredentials: true });
         console.log(response)
         if (response.status === 200) {
           const user = response.data.user;
-          // setUserInfo(user); 
+          setUserInfo(user); 
          
 
         
