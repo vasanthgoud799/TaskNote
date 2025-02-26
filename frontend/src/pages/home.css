@@ -54,6 +54,7 @@ body.dark-theme .sidebar
 
 .sidebar-title {
   font-size: 1.5rem;
+  
   font-weight: bold;
   color: white;
   transition: opacity 0.3s ease;
@@ -80,6 +81,7 @@ body.dark-theme .sidebar
 .sidebar-item {
   display: flex;
   align-items: center;
+  /* justify-content: space-between; */
   padding: 0.75rem;
   gap: 20px;
   font-size: 20px;

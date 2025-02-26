@@ -73,7 +73,7 @@ const Home = () => {
         <div className="sidebar-footer">
           <button className="logout-btn" onClick={handleLogout}>
             <FiLogOut />
-            {isSidebarOpen && <span className="logout-text">Log out</span>}
+            {isSidebarOpen && <span className="logout-text"></span>}
           </button>
         </div>
       </div>
