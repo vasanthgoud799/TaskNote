@@ -13,3 +13,5 @@ export const CREATE_NOTE_ROUTE = `${NOTE_ROUTES}/create-note`;
 export const GET_NOTE_ROUTE = `${NOTE_ROUTES}/get-notes`;
 export const DELETE_NOTE_ROUTE = `${NOTE_ROUTES}/delete-note`;
 export const UPDATE_NOTE_ROUTE = `${NOTE_ROUTES}/update-note`;
+export const GET_DELETED_NOTES_ROUTE = `${NOTE_ROUTES}/deleted-notes`;
+export const RESTORE_NOTE_ROUTE = `${NOTE_ROUTES}/restore-note`;

@@ -1,0 +1,214 @@
+/* General Profile Styles */
+.profile-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    transition: background-color 0.3s ease;
+    padding: 20px;
+    
+}
+
+/* Light Theme */
+.profile-container.light {
+    background-color: #f0f2f5;
+    color: #2d3748;
+}
+
+.profile-container.light .profile-card {
+    background: #ffffff;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.profile-container.light .profile-sidebar {
+    background: linear-gradient(135deg, #ff7e5f, #feb47b);
+    color: white;
+    border-radius: 15px;
+   
+}
+
+.profile-container.light .profile-field input {
+    border: 2px solid #ddd;
+  
+    font-size: 16px;
+    border-radius: 10px;
+}
+
+.profile-container.light .save-btn, 
+.profile-container.light .cancel-btn, 
+.profile-container.light .edit-btn {
+    background: #ff7e5f;
+    border-radius: 10px;
+  
+}
+
+.profile-container.light .save-btn:hover, 
+.profile-container.light .cancel-btn:hover, 
+.profile-container.light .edit-btn:hover {
+    background: #feb47b;
+}
+
+/* Dark Theme */
+.profile-container.dark {
+    background-color: #2d3748;
+    color: #f0f0f0;
+}
+
+.profile-container.dark .profile-card {
+    background: #222;
+    box-shadow: 0 8px 20px rgba(255, 255, 255, 0.15);
+    border-radius: 15px;
+}
+
+.profile-container.dark .profile-sidebar {
+    background: linear-gradient(135deg, #333, #555);
+    color: #f0f0f0;
+    border-radius: 15px;
+    
+}
+
+.profile-container.dark .profile-field input {
+    background: #333;
+    color: #f0f0f0;
+    border: 2px solid #555;
+    
+    font-size: 16px;
+    border-radius: 10px;
+}
+
+.profile-container.dark .profile-field input:focus {
+    border-color: #ff7e5f;
+}
+
+.profile-container.dark .save-btn, 
+.profile-container.dark .cancel-btn, 
+.profile-container.dark .edit-btn {
+    background: #ff7e5f;
+    color: white;
+    border-radius: 10px;
+    
+}
+
+.profile-container.dark .save-btn:hover, 
+.profile-container.dark .cancel-btn:hover, 
+.profile-container.dark .edit-btn:hover {
+    background: #feb47b;
+}
+
+/* Profile Card */
+.profile-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 600px;
+    border-radius: 15px;
+    overflow: hidden;
+    padding: 25px;
+    text-align: center;
+    transition: transform 0.3s ease, background-color 0.3s ease;
+}
+
+.profile-card:hover {
+    transform: translateY(-5px);
+}
+
+/* Profile Sidebar */
+.profile-sidebar {
+    text-align: center;
+}
+
+.profile-pic-container {
+    position: relative;
+    margin-top: 10px;
+    margin-bottom: 15px;
+}
+
+.profile-pic {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid white;
+    transition: transform 0.3s ease;
+}
+
+.profile-pic:hover {
+    transform: scale(1.05);
+}
+
+.change-img-btn {
+    position: absolute;
+    bottom: 5px;
+    right: 190px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border: none;
+    padding: 8px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.change-img-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.profile-info {
+    margin-top: 10px;
+}
+
+.profile-info h2 {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.profile-info p {
+    font-size: 16px;
+    opacity: 0.8;
+}
+
+/* Profile Details */
+.profile-details {
+    padding: 15px;
+    text-align: left;
+}
+
+.profile-field label {
+    font-weight: bold;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.profile-field input {
+    width: 100%;
+    padding: 8px;
+    border-radius: 10px;
+    font-size: 16px;
+    transition: border 0.3s ease;
+}
+
+.profile-field input:focus {
+    outline: none;
+}
+
+.profile-buttons {
+    display: flex;
+    justify-content: space-between;
+   
+}
+
+.save-btn, .cancel-btn, .edit-btn {
+    border: none;
+  
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.3s ease, transform 0.2s ease;
+}
+
+.save-btn:hover, .cancel-btn:hover, .edit-btn:hover {
+    transform: translateY(-2px);
+}
+
+.hidden {
+    display: none;
+}

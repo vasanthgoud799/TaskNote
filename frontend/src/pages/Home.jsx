@@ -10,25 +10,13 @@ import HomeSection from "../components/Home";
 import DeletedNotes from "../components/DeletedNotes";
 import { useAppStore } from "../store";
 
-// Theme Section Component
-const ThemeSection = ({ toggleTheme, isDarkMode }) => (
-  <div className="section-content">
-    <h2>Theme Settings</h2>
-    <button className="theme-toggle-btn" onClick={toggleTheme}>
-      {isDarkMode ? <FiSun /> : <FiMoon />} Toggle {isDarkMode ? "Light" : "Dark"} Mode
-    </button>
-  </div>
-);
-
 const Home = () => {
   const navigate = useNavigate();
-  const {setUserInfo}=useAppStore();
+  const { setUserInfo } = useAppStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeSection, setActiveSection] = useState("Home");
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    return localStorage.getItem("theme") === "dark";
-  });
-  
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
+
   useEffect(() => {
     document.body.classList.toggle("dark-theme", isDarkMode);
     localStorage.setItem("theme", isDarkMode ? "dark" : "light");
@@ -44,12 +32,10 @@ const Home = () => {
         return <HomeSection />;
       case "Profile":
         return <Profile />;
-      case "Theme":
-        return <ThemeSection toggleTheme={toggleTheme} isDarkMode={isDarkMode} />;
       case "Deleted Notes":
         return <DeletedNotes />;
       default:
-        return <Home />;
+        return <HomeSection />;
     }
   };
 
@@ -81,8 +67,8 @@ const Home = () => {
         <nav className="sidebar-nav">
           <SidebarItem Icon={FiHome} label="Home" onClick={() => setActiveSection("Home")} isActive={activeSection === "Home"} isSidebarOpen={isSidebarOpen} />
           <SidebarItem Icon={FiUser} label="Profile" onClick={() => setActiveSection("Profile")} isActive={activeSection === "Profile"} isSidebarOpen={isSidebarOpen} />
-          <SidebarItem Icon={isDarkMode ? FiSun : FiMoon} label="Theme" onClick={() => setActiveSection("Theme")} isActive={activeSection === "Theme"} isSidebarOpen={isSidebarOpen} />
           <SidebarItem Icon={FiTrash2} label="Deleted" onClick={() => setActiveSection("Deleted Notes")} isActive={activeSection === "Deleted Notes"} isSidebarOpen={isSidebarOpen} />
+          <SidebarItem Icon={isDarkMode ? FiSun : FiMoon} label={isDarkMode ? "Light Mode" : "Dark Mode"} onClick={toggleTheme} isActive={false} isSidebarOpen={isSidebarOpen} />
         </nav>
         <div className="sidebar-footer">
           <button className="logout-btn" onClick={handleLogout}>

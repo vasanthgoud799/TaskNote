@@ -18,28 +18,29 @@ body.dark-theme {
 /* Home Container */
 .home-container {
     background-color: var(--content-bg);
-    padding: 20px;
-    min-height: 100vh;
-    border-radius: 10px;
+   
+    min-height: 1000vh;
+    
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
 /* Title */
 .title {
-    font-size: 3.5rem;
-    margin-bottom: 1rem;
+    font-size: 3rem;
+   
     font-weight: bold;
 }
 
 .notesTitle {
-    padding: 18px;
+    padding: 10px;
     background-color: var(--text-color);
     color: var(--content-bg);
-    border-radius: 10px;
+    
 }
 
 /* Top Bar (Tabs + Search) */
 .top-bar {
+    padding:10px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -100,6 +101,7 @@ body.dark-theme {
 
 /* Notes Grid */
 .notes-list {
+    padding: 20px;
     margin-top: 20px;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
