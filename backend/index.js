@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import mongoose from "mongoose";
 import authRoutes from "./routes/userRoutes.js";
 import noteRoutes from "./routes/noteRoutes.js";
+import bodyParser from "body-parser";
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.use(
 
 app.use(cookieParser());
 // Increase the limit for JSON payloads
+app.use(bodyParser.json({ limit: "10mb" }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

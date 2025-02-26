@@ -4,6 +4,7 @@ import {
   login,
   logout,
   signUp,
+  updateProfile,
 } from "../controllers/userController.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 
@@ -14,7 +15,7 @@ const authRoutes = Router();
 authRoutes.post("/signup", signUp);
 authRoutes.post("/login", login);
 authRoutes.get("/user-info", verifyToken, getUserInfo);
-// authRoutes.post("/update-profile", verifyToken, updateProfile);
+authRoutes.put("/update-profile", verifyToken, updateProfile);
 authRoutes.post("/logout", logout);
 
 // authRoutes.post("/request-otp", requestOTP);

@@ -118,56 +118,30 @@ export const getUserInfo = async (req, res, next) => {
   }
 };
 
-// // controllers/AuthController.js
+export const updateProfile = async (req, res) => {
+  try {
+    const { firstName, lastName, email, newPassword, profilePicture } =
+      req.body;
+    const userId = req.userId;
 
-// export const updateProfile = async (req, res) => {
-//   try {
-//     const { userId } = req;
-//     // console.log("User ID in updateProfile:", userId); // Add this line for debugging
-//     const { firstName, lastName, image, about } = req.body;
+    let user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-//     if (!userId) {
-//       return res
-//         .status(401)
-//         .json({ message: "Unauthorized: No user ID provided" });
-//     }
+    if (firstName) user.firstName = firstName;
+    if (lastName) user.lastName = lastName;
+    if (email) user.email = email;
+    if (profilePicture) user.image = profilePicture;
+    if (newPassword) {
+      user.password = newPassword;
+    }
 
-//     if (!firstName || !lastName || !image) {
-//       return res
-//         .status(400)
-//         .json({ message: "First Name, Last Name, and Image are required" });
-//     }
-
-//     const userData = await User.findByIdAndUpdate(
-//       userId,
-//       {
-//         firstName,
-//         lastName,
-//         image,
-//         about,
-//         profileSetup: true,
-//       },
-//       { new: true, runValidators: true }
-//     );
-
-//     if (!userData) {
-//       return res.status(404).json({ message: "User not found" });
-//     }
-
-//     return res.status(200).json({
-//       id: userData.id,
-//       email: userData.email,
-//       profileSetUp: userData.profileSetup,
-//       firstName: userData.firstName,
-//       lastName: userData.lastName,
-//       image: userData.image,
-//       about: userData.about,
-//     });
-//   } catch (error) {
-//     console.error("Error updating profile:", error);
-//     res.status(500).json({ message: "Error updating profile", error });
-//   }
-// };
+    await user.save();
+    res.status(200).json({ message: "Profile updated successfully", user });
+  } catch (error) {
+    console.log("save");
+    res.status(500).json({ message: "Internal Server Error", error });
+  }
+};
 
 export const logout = async (req, res) => {
   try {
