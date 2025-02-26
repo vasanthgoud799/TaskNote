@@ -41,6 +41,8 @@ body.dark-theme .sidebar
 
 .sidebar.closed {
   width: 70px;
+  padding: 1.6rem ;
+  
 }
 
 /* Sidebar Header */
@@ -52,7 +54,7 @@ body.dark-theme .sidebar
 
 .sidebar-title {
   font-size: 1.5rem;
-  font-weight: bolder;
+  font-weight: bold;
   color: white;
   transition: opacity 0.3s ease;
 }
@@ -62,10 +64,11 @@ body.dark-theme .sidebar
 }
 
 .menu-btn {
-  font-size: 15px;
+  font-size: 1rem;
   color: white;
   background: none;
   border:black;
+  
   cursor: pointer;
 }
 

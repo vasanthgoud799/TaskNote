@@ -13,6 +13,7 @@ const HomeSection = () => {
   const [showCreateNote, setShowCreateNote] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedNote, setSelectedNote] = useState(null);
+  const [showStarred, setShowStarred] = useState(false); // State for toggling between All and Starred notes
 
   // Ref for tracking notes list
   const notesContainerRef = useRef(null);
@@ -65,11 +66,15 @@ const HomeSection = () => {
     setShowCreateNote(true);
   };
 
+  // Filter notes based on search query
   const filteredNotes = notes.filter(
     (note) =>
       note?.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       note?.content?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Filter starred notes
+  const starredNotes = filteredNotes.filter((note) => note.isStarred);
 
   return (
     <div className="home-container">
@@ -89,8 +94,18 @@ const HomeSection = () => {
           {/* Tabs & Search Bar */}
           <div className="top-bar">
             <div className="tabs">
-              <button className="tab active">All ({notes.length})</button>
-              <button className="tab">Starred (0)</button>
+              <button 
+                className={`tab ${!showStarred ? "active" : ""}`} 
+                onClick={() => setShowStarred(false)}
+              >
+                All ({notes.length})
+              </button>
+              <button 
+                className={`tab ${showStarred ? "active" : ""}`} 
+                onClick={() => setShowStarred(true)}
+              >
+                Starred ({starredNotes.length})
+              </button>
             </div>
             <input
               type="text"
@@ -104,9 +119,9 @@ const HomeSection = () => {
           {/* Notes List - Wrapped in .notes-wrapper for correct scrolling */}
           <div className="notes-wrapper" ref={notesContainerRef}>
             <div className="notes-list">
-              {filteredNotes.length > 0 ? (
-                filteredNotes.map((note, index) => (
-                  <div key={note._id} className="note" ref={index === filteredNotes.length - 1 ? lastNoteRef : null}>
+              {(showStarred ? starredNotes : filteredNotes).length > 0 ? (
+                (showStarred ? starredNotes : filteredNotes).map((note, index) => (
+                  <div key={note._id} className="note" ref={index === (showStarred ? starredNotes.length : filteredNotes.length) - 1 ? lastNoteRef : null}>
                     <div className="note-header">
                       <h3>{note.title}</h3>
                       <div className="note-actions">
