@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import "./Register.css";
+import "./register.css";
 import React, { useState } from "react";
 
 import "react-toastify/dist/ReactToastify.css";
