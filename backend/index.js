@@ -34,7 +34,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/notes", noteRoutes);
 
 mongoose
-  .connect("mongodb+srv://vasanthgoud79:vasanth79@cluster0.cscqs.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+  .connect(databaseUrl)
   .then(() => {
     console.log("Database Connection successful");
   })
