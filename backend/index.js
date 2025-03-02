@@ -38,8 +38,8 @@ mongoose
   .then(() => {
     console.log("Database Connection successful");
   })
-  .catch(() => {
-    console.log("err.message");
+  .catch((err) => {
+    console.log(err.message);
   });
 
 const server = app.listen(port, () => {
