@@ -15,7 +15,7 @@ const databaseUrl = process.env.DATABASE_URL;
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: ["http://localhost:5173", "http://127.0.0.1:5173","https://task-note-phi.vercel.app"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     credentials: true, // Enable cookies
     allowedHeaders: ["Content-Type", "Authorization"],
