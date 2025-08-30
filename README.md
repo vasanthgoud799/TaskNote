@@ -36,7 +36,7 @@ TaskNote is a sleek, dark-themed task manager designed to help users organize, t
 
 1. **Clone the Repository**
     ```
-    git clone https://github.com/yourusername/tasknote.git
+    git clone https://github.com/vasanthgoud799/tasknote.git
     cd tasknote
     ```
 2. **Install Dependencies**
