@@ -3,18 +3,20 @@ import { useNavigate } from "react-router-dom";
 import "./Login.css";
 import React from "react";
 import { useState } from "react";
-import { toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+
 import { LOGIN_ROUTE } from "../utils/constant";
 import { apiClient } from "../lib/api-client";
+import { toast } from "sonner";
+import { useAppStore } from "../store";
 export default function Login() {
   const navigate = useNavigate();
+  const {setUserInfo}=useAppStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   
 
   const validateLogin = () => {
-    toast.success("yes")
+    
     if (!email.length) {
       toast.error("Email is required.");
       return false;
@@ -27,15 +29,15 @@ export default function Login() {
   };
 
   const handleLogin = async () => {
-    console.log("hek")
+    
     if (validateLogin()) {
-      console.log("hes")
+      
       try {
         const response = await apiClient.post(LOGIN_ROUTE, { email, password }, { withCredentials: true });
         console.log(response)
         if (response.status === 200) {
           const user = response.data.user;
-          // setUserInfo(user); 
+          setUserInfo(user); 
          
 
         
@@ -43,7 +45,7 @@ export default function Login() {
           setPassword("");
       
             navigate("/Home");
-          
+            toast.success("Login successfull")
         }
       } catch (error) {
         toast.error("Login failed. Please try again.");

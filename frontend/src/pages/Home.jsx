@@ -1,92 +1,96 @@
-import { useState } from "react";
-import { FiHome, FiUser, FiMoon, FiTrash2, FiLogOut, FiMenu } from "react-icons/fi";
-import React from "react";
-import "bootstrap/dist/css/bootstrap.min.css";
+import React, { useState, useEffect } from "react";
+import { FiHome, FiUser, FiMoon, FiSun, FiTrash2, FiLogOut, FiMenu } from "react-icons/fi";
+import "./home.css";
+import Profile from "../components/Profile";
+import { apiClient } from "../lib/api-client";
+import { LOGOUT_ROUTE } from "../utils/constant";
+import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
+import HomeSection from "../components/Home";
+import DeletedNotes from "../components/DeletedNotes";
+import { useAppStore } from "../store";
 
 const Home = () => {
+  const navigate = useNavigate();
+  const { setUserInfo } = useAppStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [activeSection, setActiveSection] = useState("Home");
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
+
+  useEffect(() => {
+    document.body.classList.toggle("dark-theme", isDarkMode);
+    localStorage.setItem("theme", isDarkMode ? "dark" : "light");
+  }, [isDarkMode]);
+
+  const toggleTheme = () => {
+    setIsDarkMode((prev) => !prev);
+  };
+
+  const renderSection = () => {
+    switch (activeSection) {
+      case "Home":
+        return <HomeSection />;
+      case "Profile":
+        return <Profile />;
+      case "Deleted Notes":
+        return <DeletedNotes />;
+      default:
+        return <HomeSection />;
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const response = await apiClient.post(LOGOUT_ROUTE, {}, { withCredentials: true });
+
+      if (response.status === 200) {
+        setUserInfo(undefined);
+        navigate("/login");
+        toast.success("Logged Out Successfully");
+      }
+    } catch (error) {
+      console.error("Error logging out:", error.response?.data?.message || error.message);
+      toast.error("Failed to logout");
+    }
+  };
 
   return (
-    <div className="d-flex vh-100 bg-dark text-white">
+    <div className={`container ${isDarkMode ? "dark" : ""}`}>
       {/* Sidebar */}
-      <div className={`bg-secondary p-3 transition-all ${isSidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
-        {/* Sidebar Header */}
-        <div className="d-flex align-items-center justify-content-between">
-          <h2 className="fs-4 fw-bold">Real Notes</h2>
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="btn btn-light">
+      <div className={`sidebar ${isSidebarOpen ? "open" : "closed"}`}>
+        <div className="sidebar-header">
+          {isSidebarOpen && <h2 className="sidebar-title">TaskNote</h2>}
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="menu-btn">
             <FiMenu />
           </button>
         </div>
-
-        {/* Sidebar Items */}
-        <nav className="mt-4">
-          <SidebarItem Icon={FiHome} label="Home" />
-          <SidebarItem Icon={FiUser} label="Profile" />
-          <SidebarItem Icon={FiMoon} label="Theme" />
-          <SidebarItem Icon={FiTrash2} label="Deleted Notes" />
+        <nav className="sidebar-nav">
+          <SidebarItem Icon={FiHome} label="Home" onClick={() => setActiveSection("Home")} isActive={activeSection === "Home"} isSidebarOpen={isSidebarOpen} />
+          <SidebarItem Icon={FiUser} label="Profile" onClick={() => setActiveSection("Profile")} isActive={activeSection === "Profile"} isSidebarOpen={isSidebarOpen} />
+          <SidebarItem Icon={FiTrash2} label="Deleted" onClick={() => setActiveSection("Deleted Notes")} isActive={activeSection === "Deleted Notes"} isSidebarOpen={isSidebarOpen} />
+          <SidebarItem Icon={isDarkMode ? FiSun : FiMoon} label={isDarkMode ? "Light Mode" : "Dark Mode"} onClick={toggleTheme} isActive={false} isSidebarOpen={isSidebarOpen} />
         </nav>
-
-        {/* Language Selector & Logout */}
-        <div className="position-absolute bottom-0 start-0 p-3 w-100">
-          <p className="small">Change Language</p>
-          <select className="form-select bg-dark text-white">
-            <option>English</option>
-            <option>Spanish</option>
-          </select>
-          <button className="btn btn-danger w-100 mt-3 d-flex align-items-center gap-2">
+        <div className="sidebar-footer">
+          <button className="logout-btn" onClick={handleLogout}>
             <FiLogOut />
-            <span>Log out</span>
+            {isSidebarOpen && <span className="logout-text"></span>}
           </button>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-grow-1 p-4">
-        <h1 className="fw-bold">Your Notes</h1>
-
-        {/* Tabs */}
-        <div className="d-flex mt-4 border-bottom pb-2">
-          <Tab label="All" count={0} />
-          <Tab label="Starred" count={0} />
-        </div>
-
-        {/* Search */}
-        <div className="mt-4">
-          <input type="text" placeholder="Search notes" className="form-control w-50" />
-        </div>
-
-        {/* Empty State */}
-        <div className="d-flex flex-column align-items-center mt-5">
-          <img
-            src="https://cdni.iconscout.com/illustration/free/thumb/free-documentation-2130363-1794195.png"
-            alt="Empty Notes"
-            className="w-50"
-          />
-          <p className="mt-3 text-secondary">You haven't starred any notes yet</p>
-        </div>
-
-        {/* Floating Add Button */}
-        <button className="btn btn-primary rounded-circle position-fixed bottom-3 end-3 p-3 fs-4">
-          +
-        </button>
+      <div className={`main-content ${isSidebarOpen ? "shifted" : ""}`}>
+        <div className="section-container">{renderSection()}</div>
       </div>
     </div>
   );
 };
 
 // Sidebar Item Component
-const SidebarItem = ({ Icon, label }) => (
-  <div className="d-flex align-items-center gap-3 p-2 rounded bg-dark text-white mt-2 cursor-pointer">
-    <Icon className="fs-5" />
-    <span>{label}</span>
-  </div>
-);
-
-// Tab Component
-const Tab = ({ label, count }) => (
-  <div className="position-relative px-3 cursor-pointer">
-    <span className="fs-5">{label} ({count})</span>
-    <div className="w-100 bg-primary mt-1" style={{ height: "3px" }}></div>
+const SidebarItem = ({ Icon, label, onClick, isActive, isSidebarOpen }) => (
+  <div onClick={onClick} className={`sidebar-item ${isActive ? "active" : ""}`}>
+    <Icon className="sidebar-icon" />
+    {isSidebarOpen && <span className="sidebar-label">{label}</span>}
   </div>
 );
 

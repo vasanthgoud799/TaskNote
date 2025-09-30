@@ -5,7 +5,9 @@ import { compare } from "bcrypt";
 const dur = 3 * 24 * 60 * 60 * 1000; // Example token duration
 
 const createToken = (email, userId) => {
-  return jwt.sign({ email, userId }, process.env.JWT_KEY, { expiresIn: dur });
+  return jwt.sign({ email, userId }, process.env.JWT_KEY, {
+    expiresIn: dur / 1000,
+  });
 };
 
 export const login = async (req, res) => {
@@ -43,6 +45,7 @@ export const login = async (req, res) => {
         lastName: user.lastName,
         image: user.image,
         gender: user.gender,
+        notes: user.notes,
       },
     });
   } catch (err) {
@@ -93,89 +96,65 @@ export const signUp = async (req, res) => {
   }
 };
 
-// export const getUserInfo = async (req, res, next) => {
-//   try {
-//     const userData = await User.findById(req.userId);
-//     if (!userData) {
-//       return res.status(404).send("User with given id not found");
-//     }
-//     return res.status(200).json({
-//       id: userData.id,
-//       email: userData.email,
-//       profileSetUp: userData.profileSetup,
-//       firstName: userData.firstName,
-//       lastName: userData.lastName,
-//       image: userData.image,
-//       friends: userData.friends,
-//       blockedUsers: userData.blockedUsers,
-//     });
-//   } catch (err) {
-//     console.error("Error during sign up:", err);
-//     return res.status(500).json({ message: "Internal Server Error" });
-//   }
-// };
+export const getUserInfo = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
 
-// // controllers/AuthController.js
+    if (!user) {
+      return res.status(404).send("User with given id not found");
+    }
+    return res.status(200).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        image: user.image,
+        gender: user.gender,
+        notes: user.notes,
+      },
+    });
+  } catch (err) {
+    console.error("Error during sign up:", err);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
 
-// export const updateProfile = async (req, res) => {
-//   try {
-//     const { userId } = req;
-//     // console.log("User ID in updateProfile:", userId); // Add this line for debugging
-//     const { firstName, lastName, image, about } = req.body;
+export const updateProfile = async (req, res) => {
+  try {
+    const { firstName, lastName, email, newPassword, profilePicture } =
+      req.body;
+    const userId = req.userId;
 
-//     if (!userId) {
-//       return res
-//         .status(401)
-//         .json({ message: "Unauthorized: No user ID provided" });
-//     }
+    let user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-//     if (!firstName || !lastName || !image) {
-//       return res
-//         .status(400)
-//         .json({ message: "First Name, Last Name, and Image are required" });
-//     }
+    if (firstName) user.firstName = firstName;
+    if (lastName) user.lastName = lastName;
+    if (email) user.email = email;
+    if (profilePicture) user.image = profilePicture;
+    if (newPassword) {
+      user.password = newPassword;
+    }
 
-//     const userData = await User.findByIdAndUpdate(
-//       userId,
-//       {
-//         firstName,
-//         lastName,
-//         image,
-//         about,
-//         profileSetup: true,
-//       },
-//       { new: true, runValidators: true }
-//     );
+    await user.save();
+    res.status(200).json({ message: "Profile updated successfully", user });
+  } catch (error) {
+    console.log("save");
+    res.status(500).json({ message: "Internal Server Error", error });
+  }
+};
 
-//     if (!userData) {
-//       return res.status(404).json({ message: "User not found" });
-//     }
-
-//     return res.status(200).json({
-//       id: userData.id,
-//       email: userData.email,
-//       profileSetUp: userData.profileSetup,
-//       firstName: userData.firstName,
-//       lastName: userData.lastName,
-//       image: userData.image,
-//       about: userData.about,
-//     });
-//   } catch (error) {
-//     console.error("Error updating profile:", error);
-//     res.status(500).json({ message: "Error updating profile", error });
-//   }
-// };
-
-// export const logout = async (req, res) => {
-//   try {
-//     res.cookie("jwt", "", {
-//       dur: 0,
-//       secure: true,
-//       sameSite: "None",
-//     });
-//     return res.status(200).send("Logout Successful");
-//   } catch (error) {
-//     console.error("Error logging out", error);
-//     res.status(500).json({ message: "Error Logging out", error });
-//   }
-// };
+export const logout = async (req, res) => {
+  try {
+    res.cookie("jwt", "", {
+      dur: 0,
+      secure: true,
+      sameSite: "None",
+    });
+    return res.status(200).send("Logout Successful");
+  } catch (error) {
+    console.error("Error logging out", error);
+    res.status(500).json({ message: "Error Logging out", error });
+  }
+};
