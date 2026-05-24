@@ -13,9 +13,31 @@ const noteSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      default: "Uncategorized",
+      default: "Personal",
+      trim: true,
     },
-    isStarred: {
+    starred: {
+      type: Boolean,
+      default: false,
+    },
+    pinned: {
+      type: Boolean,
+      default: false,
+    },
+    color: {
+      type: String,
+      default: "sky",
+      trim: true,
+    },
+    reminderAt: {
+      type: Date,
+      default: null,
+    },
+    notifyByEmail: {
+      type: Boolean,
+      default: false,
+    },
+    notifyByPhone: {
       type: Boolean,
       default: false,
     },

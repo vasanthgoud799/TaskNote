@@ -1,180 +1,136 @@
-import User from "../models/User.js";
-import DeletedNote from "../models/DeletedNote.js";
+import NoteRecord from "../models/NoteRecord.js";
+import { cancelRemindersForTarget, syncReminderForTarget } from "../services/ReminderSyncService.js";
+import { sendError, sendSuccess } from "../utils/respond.js";
 
-export const createNote = async (req, res) => {
+const serializeNote = (note) => ({
+  id: note._id.toString(),
+  title: note.title,
+  content: note.content,
+  category: note.category,
+  starred: note.starred,
+  pinned: note.pinned,
+  color: note.color,
+  tags: note.tags || [],
+  backlinks: note.backlinks || [],
+  linkedTaskIds: note.linkedTaskIds || [],
+  template: note.template || "",
+  reminderAt: note.reminderAt,
+  notifyByEmail: note.notifyByEmail,
+  notifyByPhone: note.notifyByPhone,
+  reminderOffsets: note.reminderOffsets,
+  reminderChannels: note.reminderChannels,
+  createdAt: note.createdAt,
+  updatedAt: note.updatedAt,
+});
+
+const syncNoteReminder = (userId, note) =>
+  syncReminderForTarget({
+    clerkUserId: userId,
+    targetType: "note",
+    targetId: note._id.toString(),
+    title: note.title,
+    message: note.content,
+    dueAt: note.reminderAt,
+    reminderOffsets: note.reminderOffsets,
+    channels: note.reminderChannels,
+  });
+
+export const getNotes = async (req, res, next) => {
   try {
-    const { userId, title, content, category } = req.body;
-    console.log(userId, content, title, category);
-    // Check if required fields are provided
-    if (!userId || !title || !content) {
-      return res
-        .status(400)
-        .json({ message: "User ID, title, and content are required" });
-    }
+    const notes = await NoteRecord.find({ userId: req.userId }).sort({ pinned: -1, updatedAt: -1 });
+    return sendSuccess(res, 200, "Notes loaded", { notes: notes.map(serializeNote) });
+  } catch (error) {
+    next(error);
+  }
+};
 
-    // Create the new note object
-    const newNote = {
+export const getNote = async (req, res, next) => {
+  try {
+    const note = await NoteRecord.findOne({ _id: req.params.noteId, userId: req.userId });
+    if (!note) return sendError(res, 404, "Note not found");
+    return sendSuccess(res, 200, "Note loaded", { note: serializeNote(note) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createNote = async (req, res, next) => {
+  try {
+    const title = req.body.title?.trim();
+    if (!title) return sendError(res, 400, "Title is required");
+    const note = await NoteRecord.create({
+      userId: req.userId,
       title,
-      content,
-      category: category || "Uncategorized",
-      isStarred: false,
-    };
-
-    // Find user and update notes array
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { $push: { notes: newNote } }, // Push the new note to the notes array
-      { new: true } // Return updated document
-    );
-
-    if (!updatedUser) {
-      //   console.log("KNCDNCN");
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    return res.status(200).json({
-      message: "Note added successfully",
-      notes: updatedUser.notes, // Return updated notes
+      content: req.body.content?.trim() || "",
+      category: req.body.category?.trim() || "Personal",
+      starred: Boolean(req.body.starred),
+      pinned: Boolean(req.body.pinned),
+      color: req.body.color || "#141414",
+      tags: Array.isArray(req.body.tags) ? req.body.tags : [],
+      backlinks: Array.isArray(req.body.backlinks) ? req.body.backlinks : [],
+      linkedTaskIds: Array.isArray(req.body.linkedTaskIds) ? req.body.linkedTaskIds : [],
+      template: req.body.template || "",
+      reminderAt: req.body.reminderAt ? new Date(req.body.reminderAt) : null,
+      notifyByEmail: Boolean(req.body.notifyByEmail),
+      notifyByPhone: Boolean(req.body.notifyByPhone),
+      reminderOffsets: Array.isArray(req.body.reminderOffsets) ? req.body.reminderOffsets : [],
+      reminderChannels: Array.isArray(req.body.reminderChannels) ? req.body.reminderChannels : [],
     });
-  } catch (err) {
-    console.error("Error creating note:", err);
-    return res.status(500).json({ message: "Internal Server Error" });
+    await syncNoteReminder(req.userId, note);
+    return sendSuccess(res, 201, "Note created", { note: serializeNote(note) });
+  } catch (error) {
+    next(error);
   }
 };
 
-export const getNotes = async (req, res) => {
+export const updateNote = async (req, res, next) => {
   try {
-    const userId = req.userId;
-
-    if (!userId) {
-      return res.status(400).json({ message: "User ID is required" });
+    const note = await NoteRecord.findOne({ _id: req.params.noteId, userId: req.userId });
+    if (!note) return sendError(res, 404, "Note not found");
+    if (req.body.title !== undefined) {
+      const title = req.body.title.trim();
+      if (!title) return sendError(res, 400, "Title is required");
+      note.title = title;
     }
-
-    const user = await User.findById(userId).populate("notes");
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+    for (const field of ["content", "category", "color", "template"]) {
+      if (req.body[field] !== undefined) note[field] = req.body[field];
     }
-
-    return res.status(200).json({ notes: user.notes });
+    for (const field of ["starred", "pinned", "notifyByEmail", "notifyByPhone"]) {
+      if (req.body[field] !== undefined) note[field] = Boolean(req.body[field]);
+    }
+    if (Array.isArray(req.body.tags)) note.tags = req.body.tags;
+    if (Array.isArray(req.body.backlinks)) note.backlinks = req.body.backlinks;
+    if (Array.isArray(req.body.linkedTaskIds)) note.linkedTaskIds = req.body.linkedTaskIds;
+    if (Array.isArray(req.body.reminderOffsets)) note.reminderOffsets = req.body.reminderOffsets;
+    if (Array.isArray(req.body.reminderChannels)) note.reminderChannels = req.body.reminderChannels;
+    if (req.body.reminderAt !== undefined) note.reminderAt = req.body.reminderAt ? new Date(req.body.reminderAt) : null;
+    await note.save();
+    await syncNoteReminder(req.userId, note);
+    return sendSuccess(res, 200, "Note updated", { note: serializeNote(note) });
   } catch (error) {
-    console.error("Error fetching notes:", error);
-    return res.status(500).json({ message: "Internal Server Error" });
+    next(error);
   }
 };
 
-export const deleteNote = async (req, res) => {
+export const toggleStarred = async (req, res, next) => {
   try {
-    const { userId, noteId } = req.body;
-
-    // Find the user and extract the note
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    const noteToDelete = user.notes.find(
-      (note) => note._id.toString() === noteId
-    );
-    if (!noteToDelete) {
-      return res.status(404).json({ message: "Note not found" });
-    }
-
-    // Move note to DeletedNotes collection
-    await DeletedNote.create({
-      userId,
-      title: noteToDelete.title,
-      content: noteToDelete.content,
-      category: noteToDelete.category,
-    });
-
-    // Remove from the user's notes
-    user.notes = user.notes.filter((note) => note._id.toString() !== noteId);
-    await user.save();
-
-    return res
-      .status(200)
-      .json({ message: "Note moved to trash", notes: user.notes });
+    const note = await NoteRecord.findOne({ _id: req.params.noteId, userId: req.userId });
+    if (!note) return sendError(res, 404, "Note not found");
+    note.starred = req.body.starred === undefined ? !note.starred : Boolean(req.body.starred);
+    await note.save();
+    return sendSuccess(res, 200, note.starred ? "Note starred" : "Note unstarred", { note: serializeNote(note) });
   } catch (error) {
-    console.error("Error deleting note:", error);
-    return res.status(500).json({ message: "Internal Server Error" });
+    next(error);
   }
 };
 
-export const updateNote = async (req, res) => {
+export const deleteNote = async (req, res, next) => {
   try {
-    const { userId, noteId, title, content, category, isStarred } = req.body;
-
-    const user = await User.findOneAndUpdate(
-      { _id: userId, "notes._id": noteId },
-      {
-        $set: {
-          "notes.$.title": title,
-          "notes.$.content": content,
-          "notes.$.category": category,
-          "notes.$.isStarred": isStarred,
-        },
-      },
-      { new: true }
-    );
-
-    if (!user) {
-      return res.status(404).json({ error: "User or note not found" });
-    }
-
-    res.status(200).json({ message: "Note updated successfully", user });
+    const note = await NoteRecord.findOneAndDelete({ _id: req.params.noteId, userId: req.userId });
+    if (!note) return sendError(res, 404, "Note not found");
+    await cancelRemindersForTarget(req.userId, "note", note._id.toString());
+    return sendSuccess(res, 200, "Note deleted", { note: serializeNote(note) });
   } catch (error) {
-    console.error("Error updating note:", error);
-    res.status(500).json({ error: "Server error" });
-  }
-};
-
-export const restoreNote = async (req, res) => {
-  try {
-    const { userId, noteId } = req.body;
-    console.log(userId, noteId);
-    // Find the deleted note
-    const deletedNote = await DeletedNote.findOne({ _id: noteId, userId });
-    if (!deletedNote) {
-      return res.status(404).json({ message: "Note not found in trash" });
-    }
-
-    // Find the user
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Restore the note to user's notes
-    user.notes.push({
-      title: deletedNote.title,
-      content: deletedNote.content,
-      category: deletedNote.category,
-    });
-
-    await user.save();
-
-    // Remove from DeletedNotes collection
-    await DeletedNote.deleteOne({ _id: noteId });
-
-    return res.status(200).json({
-      message: "Note restored successfully",
-      notes: user.notes,
-    });
-  } catch (error) {
-    console.error("Error restoring note:", error);
-    return res.status(500).json({ message: "Internal Server Error" });
-  }
-};
-
-export const getDeletedNotes = async (req, res) => {
-  try {
-    const userId = req.userId;
-    const deletedNotes = await DeletedNote.find({ userId });
-
-    return res.status(200).json({ deletedNotes });
-  } catch (error) {
-    console.error("Error fetching deleted notes:", error);
-    return res.status(500).json({ message: "Internal Server Error" });
+    next(error);
   }
 };

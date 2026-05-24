@@ -1,112 +1,83 @@
-import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
-import "./Login.css";
-import React from "react";
-import { useState } from "react";
-
-import { LOGIN_ROUTE } from "../utils/constant";
-import { apiClient } from "../lib/api-client";
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { FiArrowRight, FiLock } from "react-icons/fi";
 import { toast } from "sonner";
-import { useAppStore } from "../store";
-export default function Login() {
+import { getErrorMessage } from "../api/apiClient.js";
+import Button from "../components/common/Button.jsx";
+import Input from "../components/common/Input.jsx";
+import { useAuth } from "../auth/AuthProvider.jsx";
+
+const Login = () => {
   const navigate = useNavigate();
-  const {setUserInfo}=useAppStore();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  
+  const { loginWithPassword } = useAuth();
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [submitting, setSubmitting] = useState(false);
 
-  const validateLogin = () => {
-    
-    if (!email.length) {
-      toast.error("Email is required.");
-      return false;
-    }
-    if (!password.length) {
-      toast.error("Password is required");
-      return false;
-    }
-    return true;
+  const updateField = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
   };
 
-  const handleLogin = async () => {
-    
-    if (validateLogin()) {
-      
-      try {
-        const response = await apiClient.post(LOGIN_ROUTE, { email, password }, { withCredentials: true });
-        console.log(response)
-        if (response.status === 200) {
-          const user = response.data.user;
-          setUserInfo(user); 
-         
+  const handleSubmit = async (event) => {
+    event.preventDefault();
 
-        
-          setEmail("");
-          setPassword("");
-      
-            navigate("/Home");
-            toast.success("Login successfull")
-        }
-      } catch (error) {
-        toast.error("Login failed. Please try again.");
-      }
+    if (!form.email || !form.password) {
+      toast.error("Email and password are required");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await loginWithPassword(form);
+      toast.success("Welcome back");
+      navigate("/dashboard");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Login failed"));
+    } finally {
+      setSubmitting(false);
     }
   };
+
   return (
-    <div className="login-container">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.9, y: -30 }} 
-        animate={{ opacity: 1, scale: 1, y: 0 }} 
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        whileHover={{ rotateX: 8, rotateY: 8 }}
-        className="login-box"
-      >
-        <h2 className="login-title">Welcome Back</h2>
-        
-        <div className="login-inputs">
-          <motion.input 
-            type="email" 
-            placeholder="Email Address" 
-            className="input-field"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            whileFocus={{ scale: 1.05 }} 
-          />
-          
-          <motion.input 
-            type="password" 
-            placeholder="Password" 
-            className="input-field"
-            whileFocus={{ scale: 1.05 }} 
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+    <main className="auth-page">
+      <Link className="auth-brand" to="/">
+        <FiLock />
+        TaskNote
+      </Link>
+      <form className="auth-card" onSubmit={handleSubmit}>
+        <div className="auth-heading">
+          <span>TaskNote</span>
+          <h1>Sign in to TaskNote</h1>
+          <p>Use your TaskNote email and password to continue.</p>
         </div>
-        
-        <div className="forgot-password">
-          <a href="#">Forgot Password?</a>
-        </div>
-        
-        <motion.button 
-          whileHover={{ scale: 1.07, boxShadow: "0px 10px 20px rgba(233, 69, 96, 0.6)" }} 
-          whileTap={{ scale: 0.95 }}
-          className="login-button"
-          onClick={handleLogin}
-        >
-          Login
-        </motion.button>
-        
-        <p className="signup-text">
-          Don't have an account? 
-          <a 
-            href="#" 
-            onClick={(e) => {
-              e.preventDefault();
-              navigate("/register");
-            }}
-          > Sign Up</a>
+
+        <Input
+          label="Email"
+          type="email"
+          value={form.email}
+          onChange={(event) => updateField("email", event.target.value)}
+          placeholder="you@example.com"
+          autoComplete="email"
+        />
+        <Input
+          label="Password"
+          type="password"
+          value={form.password}
+          onChange={(event) => updateField("password", event.target.value)}
+          placeholder="Your password"
+          autoComplete="current-password"
+        />
+
+        <Button type="submit" disabled={submitting} className="auth-submit">
+          {submitting ? "Logging in..." : "Login"}
+          <FiArrowRight />
+        </Button>
+
+        <p className="auth-switch">
+          New to TaskNote? <Link to="/sign-up">Create an account</Link>
         </p>
-      </motion.div>
-    </div>
+      </form>
+    </main>
   );
-}
+};
+
+export default Login;

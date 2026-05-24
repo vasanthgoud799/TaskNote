@@ -2,20 +2,22 @@ import { Router } from "express";
 import {
   createNote,
   deleteNote,
-  getDeletedNotes,
+  getNote,
   getNotes,
-  restoreNote,
+  toggleStarred,
   updateNote,
 } from "../controllers/noteController.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 
-const noteRoutes = Router();
+const router = Router();
 
-noteRoutes.post("/create-note", createNote);
-noteRoutes.get("/get-notes", verifyToken, getNotes);
-noteRoutes.post("/delete-note", deleteNote);
-noteRoutes.put("/update-note", updateNote);
-noteRoutes.post("/restore-note", restoreNote);
-noteRoutes.get("/deleted-notes", verifyToken, getDeletedNotes);
+router.use(verifyToken);
 
-export default noteRoutes;
+router.get("/", getNotes);
+router.post("/", createNote);
+router.get("/:noteId", getNote);
+router.put("/:noteId", updateNote);
+router.patch("/:noteId/star", toggleStarred);
+router.delete("/:noteId", deleteNote);
+
+export default router;
