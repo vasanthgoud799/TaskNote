@@ -16,6 +16,9 @@ const normalizeUser = (user) =>
 const readUser = (response) =>
   normalizeUser(response?.data?.data?.user || response?.data?.user || response?.data?.data || null);
 
+const readAccessToken = (response) =>
+  response?.data?.data?.accessToken || response?.data?.accessToken || "";
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +42,7 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithPassword = async ({ email, password }) => {
     const response = await apiClient.post("/api/auth/login", { email, password });
+    setApiToken(readAccessToken(response));
     const nextUser = readUser(response);
     setUser(nextUser);
     return nextUser;
@@ -51,6 +55,7 @@ export const AuthProvider = ({ children }) => {
       password,
       profileImage,
     });
+    setApiToken(readAccessToken(response));
     const nextUser = readUser(response);
     setUser(nextUser);
     return nextUser;
