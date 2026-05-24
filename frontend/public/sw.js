@@ -1,5 +1,5 @@
-const CACHE_NAME = "tasknote-shell-v1";
-const APP_SHELL = ["/", "/offline.html", "/manifest.webmanifest", "/icon-192.svg", "/icon-512.svg"];
+const CACHE_NAME = "tasknote-shell-v2";
+const APP_SHELL = ["/", "/index.html", "/offline.html", "/manifest.webmanifest", "/icon-192.svg", "/icon-512.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -17,6 +17,10 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
 
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) {
     return;
   }
@@ -32,18 +36,41 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match("/offline.html")));
+    event.respondWith(
+      fetch("/index.html", { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error("App shell request failed");
+          }
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put("/index.html", clone));
+          return response;
+        })
+        .catch(async () => {
+          return (
+            (await caches.match("/index.html")) ||
+            (await caches.match("/")) ||
+            (await caches.match("/offline.html"))
+          );
+        })
+    );
     return;
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-      if (request.method === "GET" && response.ok) {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-      }
-      return response;
-    }))
+    caches.match(request).then(
+      (cached) =>
+        cached ||
+        fetch(request)
+          .then((response) => {
+            if (request.method === "GET" && response.ok) {
+              const clone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            }
+            return response;
+          })
+          .catch(() => caches.match("/offline.html")),
+    ),
   );
 });
 
