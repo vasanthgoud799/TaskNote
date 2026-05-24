@@ -1163,27 +1163,40 @@ function SettingsPage({ data }) {
   const updateSetting = (patch) => data.updateSettings({ ...settings, ...patch });
 
   const enablePush = async () => {
-    if (!pushSupported) {
-      toast.error("Push notifications are not supported on this browser.");
-      return;
+    try {
+      if (!pushSupported) {
+        toast.error("Push notifications are not supported on this browser.");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        toast.error("Notifications are blocked. Allow them in browser site settings, then try again.");
+        return;
+      }
+      if (!settings.pushConfigured || !settings.vapidPublicKey) {
+        toast.error("Push notifications need VAPID keys configured on the backend.");
+        return;
+      }
+      const result = await Notification.requestPermission();
+      if (result !== "granted") {
+        toast.error("Push notification permission was not granted.");
+        return;
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing || await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(settings.vapidPublicKey),
+      });
+      await data.testPush(subscription.toJSON());
+      await updateSetting({ pushReminders: true });
+    } catch (error) {
+      const blocked = error?.name === "NotAllowedError" || Notification.permission === "denied";
+      toast.error(
+        blocked
+          ? "Notifications are blocked. Allow them in browser site settings, then try again."
+          : "Could not enable push notifications. Please try again.",
+      );
     }
-    if (!settings.vapidPublicKey) {
-      toast.error("Push notifications need VAPID keys configured on the backend.");
-      return;
-    }
-    const result = await Notification.requestPermission();
-    if (result !== "granted") {
-      toast.error("Push notification permission was not granted.");
-      return;
-    }
-    const registration = await navigator.serviceWorker.ready;
-    const existing = await registration.pushManager.getSubscription();
-    const subscription = existing || await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(settings.vapidPublicKey),
-    });
-    await data.testPush(subscription.toJSON());
-    await updateSetting({ pushReminders: true });
   };
 
   const disablePush = async () => {
@@ -1216,7 +1229,7 @@ function SettingsPage({ data }) {
                 {settings.pushReminders ? "Disable" : "Enable"}
               </Button>
             </div>
-            <Button className="mt-4" variant="secondary" onClick={() => data.testPush()}>
+            <Button className="mt-4" variant="secondary" onClick={() => data.testPush()} disabled={!settings.pushReminders}>
               Test push
             </Button>
           </div>
