@@ -1,4 +1,5 @@
 import NoteRecord from "../models/NoteRecord.js";
+import NoteVersion from "../models/NoteVersion.js";
 import { cancelRemindersForTarget, syncReminderForTarget } from "../services/ReminderSyncService.js";
 import { sendError, sendSuccess } from "../utils/respond.js";
 
@@ -39,6 +40,33 @@ export const getNotes = async (req, res, next) => {
   try {
     const notes = await NoteRecord.find({ userId: req.userId }).sort({ pinned: -1, updatedAt: -1 });
     return sendSuccess(res, 200, "Notes loaded", { notes: notes.map(serializeNote) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getNoteGraph = async (req, res, next) => {
+  try {
+    const notes = await NoteRecord.find({ userId: req.userId }).select("title content backlinks updatedAt").lean();
+    const titleToId = new Map(notes.map((note) => [note.title.trim().toLowerCase(), note._id.toString()]));
+    const nodes = notes.map((note) => ({
+      id: note._id.toString(),
+      title: note.title,
+      updatedAt: note.updatedAt,
+    }));
+    const edges = [];
+    for (const note of notes) {
+      const source = note._id.toString();
+      const backlinks = Array.isArray(note.backlinks) ? note.backlinks : [];
+      const inlineLinks = [...String(note.content || "").matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => match[1].trim());
+      for (const rawTitle of new Set([...backlinks, ...inlineLinks])) {
+        const target = titleToId.get(rawTitle.toLowerCase());
+        if (target && target !== source) {
+          edges.push({ id: `${source}-${target}`, source, target, label: rawTitle });
+        }
+      }
+    }
+    return sendSuccess(res, 200, "Knowledge graph loaded", { nodes, edges });
   } catch (error) {
     next(error);
   }
@@ -87,6 +115,14 @@ export const updateNote = async (req, res, next) => {
   try {
     const note = await NoteRecord.findOne({ _id: req.params.noteId, userId: req.userId });
     if (!note) return sendError(res, 404, "Note not found");
+    const previous = {
+      title: note.title,
+      content: note.content,
+      category: note.category,
+      tags: note.tags || [],
+      color: note.color,
+      template: note.template || "",
+    };
     if (req.body.title !== undefined) {
       const title = req.body.title.trim();
       if (!title) return sendError(res, 400, "Title is required");
@@ -104,6 +140,20 @@ export const updateNote = async (req, res, next) => {
     if (Array.isArray(req.body.reminderOffsets)) note.reminderOffsets = req.body.reminderOffsets;
     if (Array.isArray(req.body.reminderChannels)) note.reminderChannels = req.body.reminderChannels;
     if (req.body.reminderAt !== undefined) note.reminderAt = req.body.reminderAt ? new Date(req.body.reminderAt) : null;
+    const changed =
+      previous.title !== note.title ||
+      previous.content !== note.content ||
+      previous.category !== note.category ||
+      previous.color !== note.color ||
+      previous.template !== note.template ||
+      JSON.stringify(previous.tags) !== JSON.stringify(note.tags || []);
+    if (changed) {
+      await NoteVersion.create({
+        userId: req.userId,
+        noteId: note._id.toString(),
+        ...previous,
+      });
+    }
     await note.save();
     await syncNoteReminder(req.userId, note);
     return sendSuccess(res, 200, "Note updated", { note: serializeNote(note) });

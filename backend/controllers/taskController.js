@@ -70,6 +70,82 @@ const assignTaskPatch = (task, patch) => {
   }
 };
 
+const nextDueDate = (task) => {
+  const rule = task.recurringRule || task.recurring?.frequency;
+  if (!rule || rule === "none" || !task.dueDate) return null;
+  const next = new Date(task.dueDate);
+  const interval = Number(task.recurring?.interval || 1);
+  if (rule === "daily") next.setDate(next.getDate() + interval);
+  if (rule === "weekdays") {
+    do {
+      next.setDate(next.getDate() + 1);
+    } while ([0, 6].includes(next.getDay()));
+  }
+  if (rule === "weekly") next.setDate(next.getDate() + 7 * interval);
+  if (rule === "monthly") next.setMonth(next.getMonth() + interval);
+  if (task.recurring?.endDate && next > new Date(task.recurring.endDate)) return null;
+  return next;
+};
+
+const wouldCreateCircularDependency = async (userId, taskId, dependencies = []) => {
+  const target = taskId?.toString();
+  if (!target || !dependencies.includes(target)) {
+    const seen = new Set();
+    const visit = async (id) => {
+      if (!id || seen.has(id)) return false;
+      if (id === target) return true;
+      seen.add(id);
+      const task = await Task.findOne({ _id: id, userId }).select("dependencies");
+      if (!task) return false;
+      for (const dep of task.dependencies || []) {
+        if (await visit(dep.toString())) return true;
+      }
+      return false;
+    };
+    for (const dep of dependencies) {
+      if (await visit(dep.toString())) return true;
+    }
+    return false;
+  }
+  return true;
+};
+
+const createNextRecurringTask = async (task) => {
+  const dueDate = nextDueDate(task);
+  if (!dueDate) return null;
+  const exists = await Task.findOne({
+    userId: task.userId,
+    title: task.title,
+    dueDate,
+    recurringRule: task.recurringRule,
+    status: { $ne: "archived" },
+  });
+  if (exists) return exists;
+  const clone = await Task.create({
+    userId: task.userId,
+    title: task.title,
+    description: task.description,
+    status: "todo",
+    priority: task.priority,
+    important: task.important,
+    urgent: task.urgent,
+    dueDate,
+    startDate: task.startDate,
+    projectId: task.projectId,
+    tags: task.tags,
+    subtasks: (task.subtasks || []).map((item) => ({ title: item.title, done: false })),
+    dependencies: task.dependencies,
+    estimatedMinutes: task.estimatedMinutes,
+    energyLevel: task.energyLevel,
+    recurringRule: task.recurringRule,
+    recurring: { ...(task.recurring || {}), nextRunAt: dueDate, enabled: true },
+    reminderOffsets: task.reminderOffsets,
+    reminderChannels: task.reminderChannels,
+  });
+  await syncTaskReminder(task.userId, clone);
+  return clone;
+};
+
 export const getTasks = async (req, res, next) => {
   try {
     const query = { userId: req.userId, status: { $ne: "archived" } };
@@ -86,6 +162,10 @@ export const createTask = async (req, res, next) => {
   try {
     const { title } = req.body;
     if (!title?.trim()) return sendError(res, 400, "Task title is required");
+    if (Array.isArray(req.body.dependencies) && req.body.dependencies.length) {
+      const invalid = await Promise.all(req.body.dependencies.map((id) => Task.exists({ _id: id, userId: req.userId })));
+      if (invalid.some((value) => !value)) return sendError(res, 400, "One or more dependency tasks were not found");
+    }
     const task = await Task.create({ ...req.body, title: title.trim(), userId: req.userId });
     if (task.status !== "done") await syncTaskReminder(req.userId, task);
     return sendSuccess(res, 201, "Task created", { task: serializeTask(task) });
@@ -100,9 +180,13 @@ export const updateTask = async (req, res, next) => {
     if (!task) return sendError(res, 404, "Task not found");
     assignTaskPatch(task, req.body);
     if (!task.title?.trim()) return sendError(res, 400, "Task title is required");
+    if (Array.isArray(task.dependencies) && await wouldCreateCircularDependency(req.userId, task._id, task.dependencies)) {
+      return sendError(res, 400, "Circular task dependencies are not allowed");
+    }
     await task.save();
     if (task.status === "done") {
       await cancelRemindersForTarget(req.userId, "task", task._id.toString());
+      await createNextRecurringTask(task);
     } else {
       await syncTaskReminder(req.userId, task);
     }

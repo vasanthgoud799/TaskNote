@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { apiClient, setApiToken } from "../api/apiClient.js";
+import { apiClient, getErrorMessage, setApiToken } from "../api/apiClient.js";
 import { useAuth } from "../auth/AuthProvider.jsx";
+import { useOfflineSync } from "../hooks/useOfflineSync.js";
+import { enqueueOfflineOperation } from "../services/offline/offlineQueueService.js";
 import {
   FiActivity,
   FiBarChart2,
@@ -12,15 +14,20 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiClock,
+  FiDownload,
   FiFileText,
+  FiFolder,
   FiGrid,
   FiHome,
+  FiInbox,
   FiLogOut,
   FiPlus,
+  FiRepeat,
   FiSearch,
   FiSettings,
   FiTag,
   FiTrash2,
+  FiUpload,
   FiX,
   FiZap,
 } from "react-icons/fi";
@@ -34,14 +41,20 @@ const focusModes = { pomodoro: 25, deep: 50, quick: 15 };
 
 const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: FiHome },
+  { to: "/inbox", label: "Inbox", icon: FiInbox },
   { to: "/notes", label: "Notes", icon: FiFileText },
   { to: "/tasks", label: "Tasks", icon: FiCheckSquare },
   { to: "/board", label: "Board", icon: FiGrid },
   { to: "/calendar", label: "Calendar", icon: FiCalendar },
+  { to: "/planner", label: "Planner", icon: FiClock },
+  { to: "/projects", label: "Projects", icon: FiFolder },
   { to: "/focus", label: "Focus", icon: FiClock },
   { to: "/analytics", label: "Analytics", icon: FiBarChart2 },
   { to: "/habits", label: "Habits", icon: FiActivity },
   { to: "/tags", label: "Tags", icon: FiTag },
+  { to: "/templates", label: "Templates", icon: FiFileText },
+  { to: "/reviews", label: "Reviews", icon: FiRepeat },
+  { to: "/reminders", label: "Reminders", icon: FiZap },
 ];
 
 const colors = [
@@ -107,6 +120,12 @@ const seed = {
   tags: [],
   sessions: [],
   reminders: [],
+  inboxItems: [],
+  projects: [],
+  timeBlocks: [],
+  templates: [],
+  reviews: [],
+  graph: { nodes: [], edges: [] },
   settings: null,
 };
 
@@ -146,9 +165,137 @@ const normalizeSession = (session) => ({
   minutes: session.minutes || session.durationMinutes || 0,
 });
 
+const normalizeInboxItem = (item) => ({
+  ...item,
+  typeSuggestion: item.typeSuggestion || "idea",
+  status: item.status || "unprocessed",
+});
+
+const normalizeProject = (project) => ({
+  ...project,
+  status: project.status || (project.archived ? "archived" : "active"),
+  color: project.color || gold,
+});
+
+const normalizeTimeBlock = (block) => ({
+  ...block,
+  startAt: block.startAt ? new Date(block.startAt).toISOString().slice(0, 16) : "",
+  endAt: block.endAt ? new Date(block.endAt).toISOString().slice(0, 16) : "",
+  reminderOffsets: block.reminderOffsets || [],
+  reminderChannels: block.reminderChannels || [],
+});
+
+const normalizeTemplate = (template) => ({
+  ...template,
+  defaults: template.defaults || {},
+  body: template.body || "",
+});
+
+const normalizeReview = (review) => ({
+  ...review,
+  reflection: review.reflection || "",
+  metrics: review.metrics || {},
+});
+
 async function unwrap(request) {
   const response = await request;
   return response.data?.data || {};
+}
+
+function parseNaturalTask(input) {
+  const raw = input.trim();
+  const lower = raw.toLowerCase();
+  const now = new Date();
+  const parsed = {
+    title: raw,
+    priority: "medium",
+    dueDate: "",
+    reminderOffsets: [],
+    recurringRule: "",
+    important: false,
+    urgent: false,
+  };
+  if (/\burgent\b/.test(lower)) parsed.priority = "urgent";
+  else if (/\bhigh priority\b|\bhigh\b/.test(lower)) parsed.priority = "high";
+  else if (/\blow priority\b|\blow\b/.test(lower)) parsed.priority = "low";
+  parsed.urgent = parsed.priority === "urgent";
+  parsed.important = ["high", "urgent"].includes(parsed.priority);
+
+  const setDate = (date) => {
+    parsed.dueDate = date.toISOString().slice(0, 10);
+  };
+  if (/\btomorrow\b/.test(lower)) {
+    const date = new Date(now);
+    date.setDate(date.getDate() + 1);
+    setDate(date);
+  } else if (/\btoday\b/.test(lower)) {
+    setDate(now);
+  } else {
+    const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const foundDay = weekdays.findIndex((day) => lower.includes(day));
+    if (foundDay >= 0) {
+      const date = new Date(now);
+      const diff = (foundDay - date.getDay() + 7) % 7 || 7;
+      date.setDate(date.getDate() + diff);
+      setDate(date);
+    }
+  }
+  const timeMatch = lower.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  if (timeMatch && parsed.dueDate) {
+    let hour = Number(timeMatch[1]);
+    const minute = Number(timeMatch[2] || 0);
+    if (timeMatch[3] === "pm" && hour < 12) hour += 12;
+    if (timeMatch[3] === "am" && hour === 12) hour = 0;
+    parsed.reminderAt = `${parsed.dueDate}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  }
+  const reminderMatch = lower.match(/remind me (\d+)\s*(minute|minutes|min|hour|hours)/);
+  if (reminderMatch) {
+    const value = Number(reminderMatch[1]);
+    parsed.reminderOffsets = [reminderMatch[2].startsWith("hour") ? value * 60 : value];
+    parsed.reminderChannels = ["push"];
+  }
+  if (/\bevery weekday\b/.test(lower)) parsed.recurringRule = "weekdays";
+  else if (/\bevery day\b|\bdaily\b/.test(lower)) parsed.recurringRule = "daily";
+  else if (/\bevery\b/.test(lower)) parsed.recurringRule = "weekly";
+  parsed.title = raw
+    .replace(/\b(today|tomorrow|on\s+\w+day|every\s+\w+|daily|at\s+\d{1,2}(:\d{2})?\s*(am|pm)|high priority|low priority|urgent|remind me \d+\s*(minutes?|mins?|hours?)( before)?)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim() || raw;
+  return parsed;
+}
+
+function stripOfflineMeta(item = {}) {
+  const {
+    _offline,
+    _syncStatus,
+    _localId,
+    _serverId,
+    _lastLocalChangeAt,
+    ...clean
+  } = item;
+  return clean;
+}
+
+function withSyncMeta(item, status = "queued") {
+  return {
+    ...item,
+    _offline: true,
+    _syncStatus: status,
+    _localId: item._localId || item.id,
+    _lastLocalChangeAt: new Date().toISOString(),
+  };
+}
+
+const collectionNormalizers = {
+  notes: normalizeNote,
+  tasks: normalizeTask,
+  habits: normalizeHabit,
+  inboxItems: normalizeInboxItem,
+  timeBlocks: normalizeTimeBlock,
+};
+
+function responseItemFor(queueItem, response) {
+  return response?.[queueItem.responseKey] || response?.data?.[queueItem.responseKey] || null;
 }
 
 function useWorkspaceData(user) {
@@ -178,7 +325,7 @@ function useWorkspaceData(user) {
           email: user?.email || "",
           name: user?.name || "",
         }));
-        const [notes, tasks, habits, tags, focus, reminders, settings] = await Promise.all([
+        const [notes, tasks, habits, tags, focus, reminders, settings, inbox, projects, timeBlocks, templates, reviews, graph] = await Promise.all([
           unwrap(apiClient.get("/api/notes")),
           unwrap(apiClient.get("/api/tasks")),
           unwrap(apiClient.get("/api/habits")),
@@ -186,6 +333,12 @@ function useWorkspaceData(user) {
           unwrap(apiClient.get("/api/focus-sessions")),
           unwrap(apiClient.get("/api/reminders")),
           unwrap(apiClient.get("/api/settings")),
+          unwrap(apiClient.get("/api/inbox")),
+          unwrap(apiClient.get("/api/projects")),
+          unwrap(apiClient.get("/api/time-blocks")),
+          unwrap(apiClient.get("/api/templates")),
+          unwrap(apiClient.get("/api/reviews")),
+          unwrap(apiClient.get("/api/notes/graph")),
         ]);
         if (cancelled) return;
         setOnlineApi(true);
@@ -196,6 +349,12 @@ function useWorkspaceData(user) {
           tags: tags.tags || current.tags || [],
           sessions: (focus.sessions || current.sessions || []).map(normalizeSession),
           reminders: reminders.reminders || current.reminders || [],
+          inboxItems: (inbox.inboxItems || current.inboxItems || []).map(normalizeInboxItem),
+          projects: (projects.projects || current.projects || []).map(normalizeProject),
+          timeBlocks: (timeBlocks.timeBlocks || current.timeBlocks || []).map(normalizeTimeBlock),
+          templates: (templates.templates || current.templates || []).map(normalizeTemplate),
+          reviews: (reviews.reviews || current.reviews || []).map(normalizeReview),
+          graph: graph || current.graph || { nodes: [], edges: [] },
           settings: settings.settings || current.settings || null,
         }));
       } catch (error) {
@@ -211,6 +370,54 @@ function useWorkspaceData(user) {
   }, [key, userId, user?.email, user?.name]);
 
   const update = (recipe) => setData((current) => (typeof recipe === "function" ? recipe(current) : recipe));
+  const applySyncedOperation = (queueItem, response) => {
+    const key = queueItem.collectionKey;
+    const syncedItem = responseItemFor(queueItem, response);
+    if (!key) return;
+    update((current) => {
+      if (!Array.isArray(current[key])) return current;
+      if (queueItem.operation === "delete" || !syncedItem) {
+        return { ...current, [key]: current[key].filter((item) => item.id !== queueItem.entityId) };
+      }
+      const normalize = collectionNormalizers[key] || ((item) => item);
+      const normalized = normalize(syncedItem);
+      const exists = current[key].some((item) => item.id === queueItem.entityId || item.id === normalized.id);
+      const nextItems = exists
+        ? current[key].map((item) => (
+          item.id === queueItem.entityId || item.id === normalized.id
+            ? { ...normalized, _offline: false, _syncStatus: "synced", _serverId: normalized.id }
+            : item
+        ))
+        : [{ ...normalized, _offline: false, _syncStatus: "synced", _serverId: normalized.id }, ...current[key]];
+      return { ...current, [key]: nextItems };
+    });
+  };
+  const markConflictOperation = (queueItem) => {
+    const key = queueItem.collectionKey;
+    if (!key) return;
+    update((current) => ({
+      ...current,
+      [key]: Array.isArray(current[key])
+        ? current[key].map((item) => (item.id === queueItem.entityId ? { ...item, _syncStatus: "conflict" } : item))
+        : current[key],
+    }));
+  };
+  const offlineSync = useOfflineSync({
+    userId,
+    onSynced: applySyncedOperation,
+    onConflict: markConflictOperation,
+  });
+  const queueOfflineWrite = async (operation) => {
+    await enqueueOfflineOperation({ userId, ...operation });
+  };
+  const markQueued = (collectionKey, entityId, status = "queued") => {
+    update((current) => ({
+      ...current,
+      [collectionKey]: Array.isArray(current[collectionKey])
+        ? current[collectionKey].map((item) => (item.id === entityId ? withSyncMeta(item, status) : item))
+        : current[collectionKey],
+    }));
+  };
   const ensureApiToken = async () => {
     setApiToken(null);
   };
@@ -222,8 +429,11 @@ function useWorkspaceData(user) {
       return result;
     } catch (error) {
       setOnlineApi(false);
-      fallback?.();
-      toast.error(error?.response?.data?.message || error.message || "Saved locally. Backend is unavailable.");
+      if (fallback) {
+        await fallback(error);
+      } else {
+        toast.error(error?.response?.data?.message || error.message || "Backend is unavailable.");
+      }
       return null;
     }
   };
@@ -231,6 +441,7 @@ function useWorkspaceData(user) {
   return {
     ...data,
     onlineApi,
+    offlineSync,
     async createNote(note) {
       const next = {
         id: uid(),
@@ -247,7 +458,22 @@ function useWorkspaceData(user) {
         updatedAt: new Date().toISOString(),
       };
       await withApi(
-        () => update((d) => ({ ...d, notes: [next, ...d.notes] })),
+        async () => {
+          const queued = withSyncMeta(next);
+          update((d) => ({ ...d, notes: [queued, ...d.notes] }));
+          await queueOfflineWrite({
+            entityType: "note",
+            entityId: queued.id,
+            operation: "create",
+            method: "POST",
+            endpoint: "/api/notes",
+            payload: stripOfflineMeta(queued),
+            localSnapshot: queued,
+            collectionKey: "notes",
+            responseKey: "note",
+          });
+          toast.success("Note saved offline. It will sync when you reconnect.");
+        },
         async () => {
           const result = await unwrap(apiClient.post("/api/notes", next));
           update((d) => ({ ...d, notes: [normalizeNote(result.note), ...d.notes] }));
@@ -257,8 +483,32 @@ function useWorkspaceData(user) {
     },
     async updateNote(id, patch) {
       const payload = { ...patch, backlinks: extractBacklinks(patch.content || "") };
+      const previous = data.notes.find((note) => note.id === id);
       await withApi(
-        () => update((d) => ({ ...d, notes: d.notes.map((note) => (note.id === id ? { ...note, ...payload, updatedAt: new Date().toISOString() } : note)) })),
+        async () => {
+          const updatedAt = new Date().toISOString();
+          let localSnapshot = null;
+          update((d) => ({
+            ...d,
+            notes: d.notes.map((note) => {
+              if (note.id !== id) return note;
+              localSnapshot = withSyncMeta({ ...note, ...payload, updatedAt });
+              return localSnapshot;
+            }),
+          }));
+          await queueOfflineWrite({
+            entityType: "note",
+            entityId: id,
+            operation: "update",
+            method: "PUT",
+            endpoint: `/api/notes/${id}`,
+            payload,
+            localSnapshot: previous,
+            collectionKey: "notes",
+            responseKey: "note",
+          });
+          toast.success("Note update queued for sync.");
+        },
         async () => {
           const result = await unwrap(apiClient.put(`/api/notes/${id}`, payload));
           update((d) => ({ ...d, notes: d.notes.map((note) => (note.id === id ? normalizeNote(result.note) : note)) }));
@@ -267,8 +517,23 @@ function useWorkspaceData(user) {
       );
     },
     async deleteNote(id) {
+      const previous = data.notes.find((note) => note.id === id);
       await withApi(
-        () => update((d) => ({ ...d, notes: d.notes.filter((note) => note.id !== id) })),
+        async () => {
+          update((d) => ({ ...d, notes: d.notes.filter((note) => note.id !== id) }));
+          await queueOfflineWrite({
+            entityType: "note",
+            entityId: id,
+            operation: "delete",
+            method: "DELETE",
+            endpoint: `/api/notes/${id}`,
+            payload: null,
+            localSnapshot: previous,
+            collectionKey: "notes",
+            responseKey: "note",
+          });
+          toast.success("Note delete queued for sync.");
+        },
         async () => {
           await unwrap(apiClient.delete(`/api/notes/${id}`));
           update((d) => ({ ...d, notes: d.notes.filter((note) => note.id !== id), reminders: d.reminders.filter((r) => r.targetId !== id) }));
@@ -299,7 +564,22 @@ function useWorkspaceData(user) {
         updatedAt: new Date().toISOString(),
       };
       await withApi(
-        () => update((d) => ({ ...d, tasks: [next, ...d.tasks] })),
+        async () => {
+          const queued = withSyncMeta(next);
+          update((d) => ({ ...d, tasks: [queued, ...d.tasks] }));
+          await queueOfflineWrite({
+            entityType: "task",
+            entityId: queued.id,
+            operation: "create",
+            method: "POST",
+            endpoint: "/api/tasks",
+            payload: stripOfflineMeta(queued),
+            localSnapshot: queued,
+            collectionKey: "tasks",
+            responseKey: "task",
+          });
+          toast.success("Task saved offline. It will sync when you reconnect.");
+        },
         async () => {
           const result = await unwrap(apiClient.post("/api/tasks", next));
           update((d) => ({ ...d, tasks: [normalizeTask(result.task), ...d.tasks] }));
@@ -312,8 +592,23 @@ function useWorkspaceData(user) {
         ...patch,
         urgent: patch.urgent ?? (patch.priority === "urgent" ? true : undefined),
       };
+      const previous = data.tasks.find((task) => task.id === id);
       await withApi(
-        () => update((d) => ({ ...d, tasks: d.tasks.map((task) => (task.id === id ? { ...task, ...payload, updatedAt: new Date().toISOString() } : task)) })),
+        async () => {
+          update((d) => ({ ...d, tasks: d.tasks.map((task) => (task.id === id ? withSyncMeta({ ...task, ...payload, updatedAt: new Date().toISOString() }) : task)) }));
+          await queueOfflineWrite({
+            entityType: "task",
+            entityId: id,
+            operation: payload.status === "done" ? "complete" : "update",
+            method: "PATCH",
+            endpoint: `/api/tasks/${id}`,
+            payload,
+            localSnapshot: previous,
+            collectionKey: "tasks",
+            responseKey: "task",
+          });
+          toast.success("Task update queued for sync.");
+        },
         async () => {
           const result = await unwrap(apiClient.patch(`/api/tasks/${id}`, payload));
           update((d) => ({ ...d, tasks: d.tasks.map((task) => (task.id === id ? normalizeTask(result.task) : task)) }));
@@ -321,8 +616,23 @@ function useWorkspaceData(user) {
       );
     },
     async deleteTask(id) {
+      const previous = data.tasks.find((task) => task.id === id);
       await withApi(
-        () => update((d) => ({ ...d, tasks: d.tasks.filter((task) => task.id !== id) })),
+        async () => {
+          update((d) => ({ ...d, tasks: d.tasks.filter((task) => task.id !== id) }));
+          await queueOfflineWrite({
+            entityType: "task",
+            entityId: id,
+            operation: "delete",
+            method: "DELETE",
+            endpoint: `/api/tasks/${id}`,
+            payload: null,
+            localSnapshot: previous,
+            collectionKey: "tasks",
+            responseKey: "task",
+          });
+          toast.success("Task delete queued for sync.");
+        },
         async () => {
           await unwrap(apiClient.delete(`/api/tasks/${id}`));
           update((d) => ({ ...d, tasks: d.tasks.filter((task) => task.id !== id), reminders: d.reminders.filter((r) => r.targetId !== id) }));
@@ -333,7 +643,22 @@ function useWorkspaceData(user) {
     async createHabit(habit) {
       const next = { id: uid(), name: habit.name.trim(), color: habit.color || gold, completions: [], archived: false, reminderAt: habit.reminderAt || "", reminderOffsets: habit.reminderOffsets || [], reminderChannels: habit.reminderChannels || [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       await withApi(
-        () => update((d) => ({ ...d, habits: [next, ...d.habits] })),
+        async () => {
+          const queued = withSyncMeta(next);
+          update((d) => ({ ...d, habits: [queued, ...d.habits] }));
+          await queueOfflineWrite({
+            entityType: "habit",
+            entityId: queued.id,
+            operation: "create",
+            method: "POST",
+            endpoint: "/api/habits",
+            payload: stripOfflineMeta(queued),
+            localSnapshot: queued,
+            collectionKey: "habits",
+            responseKey: "habit",
+          });
+          toast.success("Habit saved offline. It will sync when you reconnect.");
+        },
         async () => {
           const result = await unwrap(apiClient.post("/api/habits", next));
           update((d) => ({ ...d, habits: [normalizeHabit(result.habit), ...d.habits] }));
@@ -342,15 +667,32 @@ function useWorkspaceData(user) {
       );
     },
     async toggleHabit(id, date = todayKey()) {
+      const previous = data.habits.find((habit) => habit.id === id);
       await withApi(
-        () => update((d) => ({
-          ...d,
-          habits: d.habits.map((habit) => {
-            if (habit.id !== id) return habit;
-            const exists = habit.completions.includes(date);
-            return { ...habit, completions: exists ? habit.completions.filter((item) => item !== date) : [...habit.completions, date], updatedAt: new Date().toISOString() };
-          }),
-        })),
+        async () => {
+          let nextHabit = null;
+          update((d) => ({
+            ...d,
+            habits: d.habits.map((habit) => {
+              if (habit.id !== id) return habit;
+              const exists = habit.completions.includes(date);
+              nextHabit = withSyncMeta({ ...habit, completions: exists ? habit.completions.filter((item) => item !== date) : [...habit.completions, date], updatedAt: new Date().toISOString() });
+              return nextHabit;
+            }),
+          }));
+          await queueOfflineWrite({
+            entityType: "habit",
+            entityId: id,
+            operation: "complete",
+            method: "POST",
+            endpoint: `/api/habits/${id}/toggle-today`,
+            payload: { date, ...(nextHabit ? stripOfflineMeta(nextHabit) : {}) },
+            localSnapshot: previous,
+            collectionKey: "habits",
+            responseKey: "habit",
+          });
+          toast.success("Habit completion queued for sync.");
+        },
         async () => {
           const result = await unwrap(apiClient.post(`/api/habits/${id}/toggle-today`));
           update((d) => ({ ...d, habits: d.habits.map((habit) => (habit.id === id ? normalizeHabit(result.habit) : habit)) }));
@@ -358,8 +700,23 @@ function useWorkspaceData(user) {
       );
     },
     async deleteHabit(id) {
+      const previous = data.habits.find((habit) => habit.id === id);
       await withApi(
-        () => update((d) => ({ ...d, habits: d.habits.filter((habit) => habit.id !== id) })),
+        async () => {
+          update((d) => ({ ...d, habits: d.habits.filter((habit) => habit.id !== id) }));
+          await queueOfflineWrite({
+            entityType: "habit",
+            entityId: id,
+            operation: "delete",
+            method: "DELETE",
+            endpoint: `/api/habits/${id}`,
+            payload: null,
+            localSnapshot: previous,
+            collectionKey: "habits",
+            responseKey: "habit",
+          });
+          toast.success("Habit delete queued for sync.");
+        },
         async () => {
           await unwrap(apiClient.delete(`/api/habits/${id}`));
           update((d) => ({ ...d, habits: d.habits.filter((habit) => habit.id !== id), reminders: d.reminders.filter((r) => r.targetId !== id) }));
@@ -431,11 +788,271 @@ function useWorkspaceData(user) {
     async disablePush(endpoint) {
       await withApi(null, () => unwrap(apiClient.delete("/api/push/unsubscribe", { data: { endpoint } })), "Push notifications disabled");
     },
+    async createInboxItem(item) {
+      const next = { id: uid(), title: item.title.trim(), content: item.content || "", typeSuggestion: item.typeSuggestion || "idea", status: "unprocessed", source: item.source || "quick-capture", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await withApi(
+        async () => {
+          const queued = withSyncMeta(next);
+          update((d) => ({ ...d, inboxItems: [queued, ...(d.inboxItems || [])] }));
+          await queueOfflineWrite({
+            entityType: "inbox",
+            entityId: queued.id,
+            operation: "create",
+            method: "POST",
+            endpoint: "/api/inbox",
+            payload: stripOfflineMeta(queued),
+            localSnapshot: queued,
+            collectionKey: "inboxItems",
+            responseKey: "inboxItem",
+          });
+          toast.success("Inbox capture saved offline.");
+        },
+        async () => {
+          const result = await unwrap(apiClient.post("/api/inbox", next));
+          update((d) => ({ ...d, inboxItems: [normalizeInboxItem(result.inboxItem), ...(d.inboxItems || [])] }));
+        },
+        "Captured to inbox"
+      );
+    },
+    async updateInboxItem(id, patch) {
+      const previous = data.inboxItems.find((item) => item.id === id);
+      await withApi(
+        async () => {
+          update((d) => ({ ...d, inboxItems: (d.inboxItems || []).map((item) => (item.id === id ? withSyncMeta({ ...item, ...patch, updatedAt: new Date().toISOString() }) : item)) }));
+          await queueOfflineWrite({
+            entityType: "inbox",
+            entityId: id,
+            operation: patch.status === "archived" ? "archive" : "update",
+            method: "PATCH",
+            endpoint: `/api/inbox/${id}`,
+            payload: patch,
+            localSnapshot: previous,
+            collectionKey: "inboxItems",
+            responseKey: "inboxItem",
+          });
+          toast.success("Inbox update queued for sync.");
+        },
+        async () => {
+          const result = await unwrap(apiClient.patch(`/api/inbox/${id}`, patch));
+          update((d) => ({ ...d, inboxItems: (d.inboxItems || []).map((item) => (item.id === id ? normalizeInboxItem(result.inboxItem) : item)) }));
+        }
+      );
+    },
+    async deleteInboxItem(id) {
+      const previous = data.inboxItems.find((item) => item.id === id);
+      await withApi(
+        async () => {
+          update((d) => ({ ...d, inboxItems: (d.inboxItems || []).filter((item) => item.id !== id) }));
+          await queueOfflineWrite({
+            entityType: "inbox",
+            entityId: id,
+            operation: "delete",
+            method: "DELETE",
+            endpoint: `/api/inbox/${id}`,
+            payload: null,
+            localSnapshot: previous,
+            collectionKey: "inboxItems",
+            responseKey: "inboxItem",
+          });
+          toast.success("Inbox delete queued for sync.");
+        },
+        async () => {
+          await unwrap(apiClient.delete(`/api/inbox/${id}`));
+          update((d) => ({ ...d, inboxItems: (d.inboxItems || []).filter((item) => item.id !== id) }));
+        },
+        "Inbox item deleted"
+      );
+    },
+    async convertInboxItem(id, type) {
+      const item = (data.inboxItems || []).find((entry) => entry.id === id);
+      if (!item) return;
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        toast.error("Converting inbox items needs an internet connection.");
+        return;
+      }
+      const endpoint = type === "note" ? "convert-to-note" : type === "task" ? "convert-to-task" : "convert-to-habit";
+      await withApi(
+        null,
+        async () => {
+          const result = await unwrap(apiClient.post(`/api/inbox/${id}/${endpoint}`, type === "task" ? parseNaturalTask(item.title) : {}));
+          update((d) => ({
+            ...d,
+            inboxItems: (d.inboxItems || []).map((entry) => (entry.id === id ? normalizeInboxItem(result.inboxItem) : entry)),
+            notes: result.note ? [normalizeNote(result.note), ...d.notes] : d.notes,
+            tasks: result.task ? [normalizeTask(result.task), ...d.tasks] : d.tasks,
+            habits: result.habit ? [normalizeHabit(result.habit), ...d.habits] : d.habits,
+          }));
+        },
+        `Converted to ${type}`
+      );
+    },
+    async createProject(project) {
+      const next = { id: uid(), name: project.name.trim(), description: project.description || "", color: project.color || gold, icon: project.icon || "folder", archived: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await withApi(
+        () => update((d) => ({ ...d, projects: [next, ...(d.projects || [])] })),
+        async () => {
+          const result = await unwrap(apiClient.post("/api/projects", next));
+          update((d) => ({ ...d, projects: [normalizeProject(result.project), ...(d.projects || [])] }));
+        },
+        "Project created"
+      );
+    },
+    async archiveProject(id) {
+      await withApi(
+        () => update((d) => ({ ...d, projects: (d.projects || []).map((project) => (project.id === id ? { ...project, archived: true } : project)) })),
+        async () => {
+          const result = await unwrap(apiClient.patch(`/api/projects/${id}`, { archived: true }));
+          update((d) => ({ ...d, projects: (d.projects || []).map((project) => (project.id === id ? normalizeProject(result.project) : project)) }));
+        },
+        "Project archived"
+      );
+    },
+    async createTimeBlock(block) {
+      const next = { id: uid(), ...block, status: block.status || "planned", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await withApi(
+        async () => {
+          const queued = withSyncMeta(next);
+          update((d) => ({ ...d, timeBlocks: [queued, ...(d.timeBlocks || [])] }));
+          await queueOfflineWrite({
+            entityType: "timeBlock",
+            entityId: queued.id,
+            operation: "create",
+            method: "POST",
+            endpoint: "/api/time-blocks",
+            payload: stripOfflineMeta(queued),
+            localSnapshot: queued,
+            collectionKey: "timeBlocks",
+            responseKey: "timeBlock",
+          });
+          toast.success("Time block saved offline.");
+        },
+        async () => {
+          const result = await unwrap(apiClient.post("/api/time-blocks", next));
+          if (result.conflict) toast.warning("This time block overlaps another block.");
+          update((d) => ({ ...d, timeBlocks: [normalizeTimeBlock(result.timeBlock), ...(d.timeBlocks || [])] }));
+        },
+        "Time block saved"
+      );
+    },
+    async updateTimeBlock(id, patch) {
+      const previous = data.timeBlocks.find((block) => block.id === id);
+      await withApi(
+        async () => {
+          update((d) => ({ ...d, timeBlocks: (d.timeBlocks || []).map((block) => (block.id === id ? withSyncMeta({ ...block, ...patch, updatedAt: new Date().toISOString() }) : block)) }));
+          await queueOfflineWrite({
+            entityType: "timeBlock",
+            entityId: id,
+            operation: patch.status === "completed" ? "complete" : "update",
+            method: "PATCH",
+            endpoint: `/api/time-blocks/${id}`,
+            payload: patch,
+            localSnapshot: previous,
+            collectionKey: "timeBlocks",
+            responseKey: "timeBlock",
+          });
+          toast.success("Time block update queued for sync.");
+        },
+        async () => {
+          const result = await unwrap(apiClient.patch(`/api/time-blocks/${id}`, patch));
+          if (result.conflict) toast.warning("This time block overlaps another block.");
+          update((d) => ({ ...d, timeBlocks: (d.timeBlocks || []).map((block) => (block.id === id ? normalizeTimeBlock(result.timeBlock) : block)) }));
+        }
+      );
+    },
+    async createTemplate(template) {
+      const next = { id: uid(), ...template, isBuiltIn: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await withApi(
+        () => update((d) => ({ ...d, templates: [next, ...(d.templates || [])] })),
+        async () => {
+          const result = await unwrap(apiClient.post("/api/templates", next));
+          update((d) => ({ ...d, templates: [normalizeTemplate(result.template), ...(d.templates || [])] }));
+        },
+        "Template saved"
+      );
+    },
+    async createReview(review) {
+      await withApi(
+        null,
+        async () => {
+          const result = await unwrap(apiClient.post("/api/reviews", review));
+          update((d) => ({ ...d, reviews: [normalizeReview(result.review), ...(d.reviews || []).filter((item) => item.id !== result.review.id)] }));
+        },
+        "Review saved"
+      );
+    },
+    async snoozeReminder(id, minutes) {
+      await withApi(
+        null,
+        async () => {
+          const result = await unwrap(apiClient.post(`/api/reminders/${id}/snooze`, { minutes }));
+          update((d) => ({ ...d, reminders: (d.reminders || []).map((item) => (item.id === id ? result.reminder : item)) }));
+        },
+        "Reminder snoozed"
+      );
+    },
+    async cancelReminder(id) {
+      await withApi(
+        () => update((d) => ({ ...d, reminders: (d.reminders || []).filter((item) => item.id !== id) })),
+        async () => {
+          await unwrap(apiClient.delete(`/api/reminders/${id}`));
+          update((d) => ({ ...d, reminders: (d.reminders || []).filter((item) => item.id !== id) }));
+        },
+        "Reminder cancelled"
+      );
+    },
+    async refreshGraph() {
+      await withApi(
+        null,
+        async () => {
+          const result = await unwrap(apiClient.get("/api/notes/graph"));
+          update((d) => ({ ...d, graph: result }));
+        }
+      );
+    },
+    async exportBackup() {
+      const result = await unwrap(apiClient.get("/api/export/json"));
+      const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+      downloadBlob(blob, `tasknote-backup-${todayKey()}.json`);
+      toast.success("Backup exported");
+    },
+    async exportTasksCsv() {
+      const response = await apiClient.get("/api/export/tasks.csv", { responseType: "blob" });
+      downloadBlob(response.data, `tasknote-tasks-${todayKey()}.csv`);
+      toast.success("Tasks exported");
+    },
+    async exportNotesMarkdown() {
+      const response = await apiClient.get("/api/export/notes", { responseType: "blob" });
+      downloadBlob(response.data, `tasknote-notes-${todayKey()}.md`);
+      toast.success("Notes exported");
+    },
+    async importBackup(file, mode = "skipDuplicates") {
+      if (!file?.name?.toLowerCase().endsWith(".json")) {
+        toast.error("Choose a valid TaskNote JSON backup.");
+        return null;
+      }
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      const result = await unwrap(apiClient.post("/api/import/json", { backup, mode }));
+      toast.success("Backup imported. Refreshing workspace...");
+      window.setTimeout(() => window.location.reload(), 700);
+      return result.summary;
+    },
   };
 }
 
 function extractBacklinks(content) {
   return [...content.matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => match[1].trim()).filter(Boolean);
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function Button({ children, variant = "primary", className = "", ...props }) {
@@ -681,17 +1298,42 @@ function Modal({ open, title, children, onClose }) {
   );
 }
 
-function NoteForm({ note, onSave, onDelete, onClose }) {
+function NoteForm({ note, notes = [], onSave, onDelete, onClose }) {
   const [title, setTitle] = useState(note?.title || "");
   const [content, setContent] = useState(note?.content || "");
   const [pinned, setPinned] = useState(Boolean(note?.pinned));
   const [template, setTemplate] = useState(note?.template || "");
   const [preview, setPreview] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
+  const [versions, setVersions] = useState([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
   const [reminder, setReminder] = useState({
     reminderAt: note?.reminderAt || "",
     reminderOffsets: note?.reminderOffsets || [30, 5, 1],
     reminderChannels: note?.reminderChannels || [],
   });
+  const linksTo = useMemo(() => extractBacklinks(content), [content]);
+  const linkedFrom = useMemo(() => {
+    if (!note?.title) return [];
+    const titleKey = note.title.trim().toLowerCase();
+    return notes
+      .filter((item) => item.id !== note.id)
+      .filter((item) => extractBacklinks(item.content || "").some((link) => link.toLowerCase() === titleKey));
+  }, [note, notes]);
+  useEffect(() => {
+    if (!note || !showVersions) return;
+    let alive = true;
+    setVersionsLoading(true);
+    unwrap(apiClient.get(`/api/notes/${note.id}/versions`))
+      .then((data) => {
+        if (alive) setVersions(data.versions || []);
+      })
+      .catch((error) => toast.error(getErrorMessage(error, "Could not load note versions")))
+      .finally(() => {
+        if (alive) setVersionsLoading(false);
+      });
+    return () => { alive = false; };
+  }, [note, showVersions]);
   const applyTemplate = (value) => {
     setTemplate(value);
     if (content.trim()) return;
@@ -726,6 +1368,64 @@ function NoteForm({ note, onSave, onDelete, onClose }) {
       <label className="block text-sm font-bold text-[var(--secondary)]">Content</label>
       {preview ? <MarkdownPreview content={content} /> : <Textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write with Markdown or link notes using [[note title]]..." className="w-full" />}
       <label className="flex items-center gap-3 text-sm font-bold text-[var(--secondary)]"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} /> Pin note</label>
+      {(linksTo.length > 0 || linkedFrom.length > 0) && (
+        <div className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-4 sm:grid-cols-2">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.14em] text-[var(--gold)]">Links to</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {linksTo.length ? linksTo.map((link) => <span key={link} className="rounded-md border border-[var(--border)] px-2 py-1 text-sm text-[var(--secondary)]">[[{link}]]</span>) : <span className="text-sm text-[var(--muted)]">No outgoing links.</span>}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.14em] text-[var(--gold)]">Linked from</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {linkedFrom.length ? linkedFrom.map((item) => <span key={item.id} className="rounded-md border border-[var(--border)] px-2 py-1 text-sm text-[var(--secondary)]">{item.title}</span>) : <span className="text-sm text-[var(--muted)]">No backlinks yet.</span>}
+            </div>
+          </div>
+        </div>
+      )}
+      {note && (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.14em] text-[var(--gold)]">Version History</p>
+              <p className="mt-1 text-sm text-[var(--secondary)]">Restore an earlier note snapshot.</p>
+            </div>
+            <Button type="button" variant="secondary" onClick={() => setShowVersions((value) => !value)}>{showVersions ? "Hide" : "Show"}</Button>
+          </div>
+          {showVersions && (
+            <div className="mt-4 space-y-3">
+              {versionsLoading && <p className="text-sm text-[var(--secondary)]">Loading versions...</p>}
+              {!versionsLoading && versions.length === 0 && <p className="text-sm text-[var(--secondary)]">No previous versions yet.</p>}
+              {!versionsLoading && versions.map((version) => (
+                <div key={version.id} className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-bold">{version.title || "Untitled"}</p>
+                    <p className="text-xs text-[var(--muted)]">{new Date(version.createdAt).toLocaleString()}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={async () => {
+                      try {
+                        await unwrap(apiClient.post(`/api/notes/${note.id}/versions/${version.id}/restore`));
+                        setTitle(version.title || "");
+                        setContent(version.content || "");
+                        onSave({ title: version.title || "", content: version.content || "", pinned, template, ...reminder });
+                        toast.success("Version restored");
+                      } catch (error) {
+                        toast.error(getErrorMessage(error, "Could not restore version"));
+                      }
+                    }}
+                  >
+                    Restore
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <ReminderControls value={reminder} onChange={setReminder} label="Revisit reminder" />
       <div className="flex flex-col gap-3 border-t border-[var(--border)] pt-5 sm:flex-row sm:justify-between">
         {note ? <Button type="button" variant="danger" onClick={() => { onDelete(note.id); onClose(); }}><FiTrash2 /> Delete</Button> : <span />}
@@ -737,6 +1437,7 @@ function NoteForm({ note, onSave, onDelete, onClose }) {
 
 function TaskForm({ task, onSave, onDelete, onClose }) {
   const [form, setForm] = useState({ title: task?.title || "", description: task?.description || "", status: task?.status || "todo", priority: task?.priority || "medium", dueDate: task?.dueDate || "", important: Boolean(task?.important), urgent: Boolean(task?.urgent), estimatedMinutes: task?.estimatedMinutes || 25, recurringRule: task?.recurringRule || "", subtasksText: (task?.subtasks || []).map((item) => item.title || item).join("\n"), dependenciesText: (task?.dependencies || []).join(", "), reminderAt: task?.reminderAt || "", reminderOffsets: task?.reminderOffsets || [30, 5, 1], reminderChannels: task?.reminderChannels || [] });
+  const [natural, setNatural] = useState("");
   const set = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const payload = () => ({
     ...form,
@@ -746,6 +1447,16 @@ function TaskForm({ task, onSave, onDelete, onClose }) {
   });
   return (
     <form className="min-w-0 space-y-4" onSubmit={(event) => { event.preventDefault(); if (!form.title.trim()) return toast.error("Task title is required"); onSave(payload()); onClose(); }}>
+      {!task && (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-4">
+          <label className="text-sm font-black uppercase tracking-[0.14em] text-[var(--gold)]">Natural language</label>
+          <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+            <Input value={natural} onChange={(event) => setNatural(event.target.value)} placeholder="Submit report tomorrow 5pm high priority" />
+            <Button type="button" variant="secondary" onClick={() => { const parsed = parseNaturalTask(natural); setForm((current) => ({ ...current, ...parsed })); }}>Preview parse</Button>
+          </div>
+          {natural && <p className="mt-3 text-sm text-[var(--secondary)]">TaskNote will parse date, priority, reminders, and recurrence before saving.</p>}
+        </div>
+      )}
       <Input autoFocus value={form.title} onChange={(event) => set("title", event.target.value)} placeholder="Task title" className="w-full" />
       <Textarea value={form.description} onChange={(event) => set("description", event.target.value)} placeholder="Description" className="w-full" />
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -761,6 +1472,7 @@ function TaskForm({ task, onSave, onDelete, onClose }) {
           <Select value={form.recurringRule} onChange={(event) => set("recurringRule", event.target.value)}>
             <option value="">No recurring</option>
             <option value="daily">Daily</option>
+            <option value="weekdays">Weekdays</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
           </Select>
@@ -832,7 +1544,7 @@ function Sidebar({ user, openQuickAdd }) {
 }
 
 function MobileNav({ openQuickAdd }) {
-  const mobileItems = [navItems[0], navItems[1], navItems[2], navItems[4]];
+  const mobileItems = [navItems[0], navItems[2], navItems[3], navItems[5]];
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--sidebar)] px-4 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 lg:hidden">
       <div className="mx-auto grid max-w-md grid-cols-5 items-center gap-2">
@@ -844,9 +1556,13 @@ function MobileNav({ openQuickAdd }) {
   );
 }
 
-function CommandPalette({ open, onClose, openNote, openTask }) {
+function CommandPalette({ open, onClose, openNote, openTask, data }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [selected, setSelected] = useState(0);
+  const [remoteResults, setRemoteResults] = useState(null);
+  const [loadingSearch, setLoadingSearch] = useState(false);
   const input = useRef(null);
   useEffect(() => { if (open) setTimeout(() => input.current?.focus(), 20); }, [open]);
   useEffect(() => {
@@ -856,33 +1572,149 @@ function CommandPalette({ open, onClose, openNote, openTask }) {
     if (open) window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
-  if (!open) return null;
+  const normalizedQuery = query.toLowerCase().trim();
+  const typeMatch = normalizedQuery.match(/\btype:(notes?|tasks?|projects?|habits?|inbox|tags?|reminders?)\b/);
+  const activeFilter = typeMatch ? typeMatch[1].replace(/s$/, "") : filter;
+  const cleanQuery = normalizedQuery
+    .replace(/\btype:\S+\b/g, "")
+    .replace(/\bdue:\S+\b/g, "")
+    .replace(/\bpriority:\S+\b/g, "")
+    .replace(/\bstatus:\S+\b/g, "")
+    .replace(/\btag:\S+\b/g, "")
+    .trim();
+
+  useEffect(() => {
+    if (!open || !cleanQuery) {
+      setRemoteResults(null);
+      return undefined;
+    }
+    let alive = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        setLoadingSearch(true);
+        const params = new URLSearchParams({ q: cleanQuery });
+        if (activeFilter !== "all") params.set("type", activeFilter);
+        const result = await unwrap(apiClient.get(`/api/search?${params.toString()}`));
+        if (alive) setRemoteResults(result.results || null);
+      } catch {
+        if (alive) setRemoteResults(null);
+      } finally {
+        if (alive) setLoadingSearch(false);
+      }
+    }, 220);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [activeFilter, cleanQuery, open]);
+
   const actions = [
     { section: "Create", label: "New Task", icon: FiCheckSquare, run: openTask },
     { section: "Create", label: "New Note", icon: FiFileText, run: openNote },
+    { section: "Create", label: "New Inbox Capture", icon: FiInbox, run: () => data.createInboxItem({ title: query || "Untitled capture", typeSuggestion: "idea" }) },
+    { section: "Create", label: "New Reminder", icon: FiZap, run: () => navigate("/reminders") },
     { section: "Create", label: "Start Focus Session", icon: FiClock, run: () => navigate("/focus") },
     ...navItems.map((item) => ({ section: "Go to", label: item.label === "Board" ? "Kanban Board" : item.label, icon: item.icon, run: () => navigate(item.to) })),
     { section: "Go to", label: "Settings", icon: FiSettings, run: () => navigate("/settings") },
-  ].filter((item) => item.label.toLowerCase().includes(query.toLowerCase()) || !query);
+  ].filter((item) => item.label.toLowerCase().includes(cleanQuery) || !cleanQuery);
+
+  const localSearch = [
+    ...(data.notes || []).map((item) => ({ type: "note", icon: FiFileText, title: item.title, preview: item.content, meta: item.pinned ? "Pinned note" : "Note", run: () => openNote(item) })),
+    ...(data.tasks || []).map((item) => ({ type: "task", icon: FiCheckSquare, title: item.title, preview: item.description, meta: `${item.status} · ${item.priority}${item.dueDate ? ` · ${formatDate(item.dueDate)}` : ""}`, run: () => openTask(item) })),
+    ...(data.projects || []).map((item) => ({ type: "project", icon: FiFolder, title: item.name, preview: item.description, meta: item.status || "Project", run: () => navigate("/projects") })),
+    ...(data.habits || []).map((item) => ({ type: "habit", icon: FiActivity, title: item.name, preview: `${item.completions?.length || 0} completions`, meta: "Habit", run: () => navigate("/habits") })),
+    ...(data.tags || []).map((item) => ({ type: "tag", icon: FiTag, title: item.name, preview: "Color-coded label", meta: "Tag", run: () => navigate("/tags") })),
+    ...(data.inboxItems || []).map((item) => ({ type: "inbox", icon: FiInbox, title: item.title, preview: item.content, meta: item.status || "Inbox", run: () => navigate("/inbox") })),
+    ...(data.reminders || []).map((item) => ({ type: "reminder", icon: FiZap, title: item.title, preview: item.message, meta: item.dueAt ? new Date(item.dueAt).toLocaleString() : "Reminder", run: () => navigate("/reminders") })),
+  ].filter((item) => {
+    const matchesFilter = activeFilter === "all" || item.type === activeFilter || `${item.type}s` === activeFilter;
+    const text = [item.title, item.preview, item.meta].join(" ").toLowerCase();
+    return matchesFilter && (!cleanQuery || text.includes(cleanQuery));
+  });
+
+  const remoteFlat = remoteResults
+    ? Object.entries(remoteResults).flatMap(([type, rows]) => (rows || []).map((row) => ({
+      type: type.replace(/s$/, ""),
+      icon: type.startsWith("task") ? FiCheckSquare : type.startsWith("project") ? FiFolder : type.startsWith("habit") ? FiActivity : type.startsWith("inbox") ? FiInbox : FiFileText,
+      title: row.title || row.name || "Untitled",
+      preview: row.content || row.description || row.status || "",
+      meta: type.replace(/s$/, ""),
+      run: () => {
+        if (type.startsWith("note")) openNote((data.notes || []).find((note) => note.id === row.id) || null);
+        else if (type.startsWith("task")) openTask((data.tasks || []).find((task) => task.id === row.id) || null);
+        else navigate(type.startsWith("project") ? "/projects" : type.startsWith("habit") ? "/habits" : type.startsWith("inbox") ? "/inbox" : "/tags");
+      },
+    })))
+    : null;
+  const results = remoteFlat?.length ? remoteFlat : localSearch.slice(0, 14);
+  const executable = [...actions, ...results];
+  useEffect(() => setSelected(0), [query, filter, open]);
+  const runSelected = () => {
+    const item = executable[selected];
+    if (item) {
+      item.run();
+      onClose();
+    }
+  };
+  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+    <div
+      className="fixed inset-0 z-50 bg-black/60 p-3 backdrop-blur-sm sm:p-4"
+      onMouseDown={onClose}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setSelected((value) => Math.min(executable.length - 1, value + 1));
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setSelected((value) => Math.max(0, value - 1));
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          runSelected();
+        }
+      }}
+    >
       <div className="mx-auto mt-14 max-h-[78vh] w-full max-w-[640px] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--text)] shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex h-16 items-center gap-3 border-b border-[var(--border)] px-4">
           <FiSearch className="text-2xl text-[var(--muted)]" />
           <input ref={input} value={query} onChange={(event) => setQuery(event.target.value)} className="h-full flex-1 bg-transparent text-xl outline-none placeholder:text-[var(--muted)]" placeholder="Search or try filters: type:task tag:work priority:high due:today" />
           <button onClick={onClose} className="text-2xl text-[var(--muted)]"><FiX /></button>
         </div>
+        <div className="flex gap-2 overflow-x-auto border-b border-[var(--border)] px-3 py-3">
+          {["all", "note", "task", "project", "habit", "inbox"].map((item) => (
+            <button key={item} onClick={() => setFilter(item)} className={cls("rounded-full border px-3 py-1 text-xs font-black uppercase", activeFilter === item ? "border-[var(--gold)] bg-[var(--gold-bg)] text-[var(--gold)]" : "border-[var(--border)] text-[var(--secondary)]")}>{item}</button>
+          ))}
+        </div>
         <div className="max-h-[calc(78vh-64px)] overflow-y-auto p-3">
           {["Create", "Go to"].map((section) => (
             <div key={section} className="border-b border-[var(--border)] py-2 last:border-0">
               <p className="px-2 py-2 text-sm font-bold text-[var(--muted)]">{section}</p>
-              {actions.filter((item) => item.section === section).map((item, index) => {
+              {actions.filter((item) => item.section === section).map((item) => {
                 const Icon = item.icon;
-                return <button key={item.label} onClick={() => { item.run(); onClose(); }} className={cls("flex h-14 w-full items-center gap-4 rounded-md px-3 text-left text-lg font-bold transition hover:bg-[var(--gold-bg)]", index === 0 && section === "Create" && "bg-[var(--gold-bg)] text-[var(--gold)]")}><Icon className="text-2xl" /> {item.label}</button>;
+                const index = executable.indexOf(item);
+                return <button key={item.label} onClick={() => { item.run(); onClose(); }} className={cls("flex h-14 w-full items-center gap-4 rounded-md px-3 text-left text-lg font-bold transition hover:bg-[var(--gold-bg)]", selected === index && "bg-white/10 text-[var(--gold)]")}><Icon className="text-2xl" /> {item.label}</button>;
               })}
             </div>
           ))}
-          <div className="p-2 text-sm text-[var(--muted)]">Try: <kbd>type:task</kbd> <kbd>due:today</kbd> <kbd>priority:high</kbd> <kbd>tag:work</kbd></div>
+          <div className="border-b border-[var(--border)] py-2">
+            <p className="px-2 py-2 text-sm font-bold text-[var(--muted)]">{loadingSearch ? "Searching..." : "Results"}</p>
+            {results.length ? results.map((item) => {
+              const Icon = item.icon;
+              const index = executable.indexOf(item);
+              return (
+                <button key={`${item.type}-${item.title}-${index}`} onClick={() => { item.run(); onClose(); }} className={cls("flex w-full items-start gap-4 rounded-md px-3 py-3 text-left transition hover:bg-[var(--gold-bg)]", selected === index && "bg-white/10")}>
+                  <Icon className="mt-1 shrink-0 text-xl text-[var(--gold)]" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2 font-black"><span className="truncate">{item.title}</span><span className="rounded bg-[var(--elevated)] px-2 py-0.5 text-[10px] uppercase tracking-widest text-[var(--secondary)]">{item.type}</span></span>
+                    <span className="mt-1 block truncate text-sm text-[var(--secondary)]">{item.preview || item.meta}</span>
+                  </span>
+                </button>
+              );
+            }) : <p className="px-3 py-5 text-sm text-[var(--secondary)]">No matching notes, tasks, projects, habits, inbox items, or reminders.</p>}
+          </div>
+          <div className="p-2 text-sm text-[var(--muted)]">Try: <kbd>type:task</kbd> <kbd>due:today</kbd> <kbd>reminder:today</kbd> <kbd>priority:high</kbd> <kbd>tag:work</kbd></div>
         </div>
       </div>
     </div>
@@ -949,9 +1781,12 @@ function NotesPage({ data, openNote }) {
   const notes = data.notes.filter((note) => [note.title, note.content].join(" ").toLowerCase().includes(query.toLowerCase()));
   const pinned = notes.filter((note) => note.pinned);
   const all = notes.filter((note) => !note.pinned);
+  const graph = data.graph || { nodes: [], edges: [] };
+  const nodeById = new Map((graph.nodes || []).map((node) => [node.id, node]));
   const NoteCard = ({ note }) => (
     <button onClick={() => openNote(note)} className="w-full max-w-[412px] rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 text-left transition hover:border-[var(--gold)]/45" style={{ borderColor: note.color ? `${note.color}99` : undefined }}>
       <h3 className="text-xl font-black">{note.title}</h3>
+      <div className="mt-3"><SyncBadge item={note} /></div>
       {note.reminderAt && <span className="mt-3 inline-flex items-center gap-2 rounded-md border border-[var(--gold)]/35 bg-[var(--gold-bg)] px-2 py-1 text-xs font-bold text-[var(--gold)]"><FiClock /> Reminder</span>}
       <p className="mt-5 whitespace-pre-line text-lg leading-7 text-[var(--secondary)] line-clamp-4">{note.content}</p>
       <p className="mt-4 text-right text-xs text-[var(--secondary)]">{timeAgo(note.updatedAt)}</p>
@@ -963,6 +1798,45 @@ function NotesPage({ data, openNote }) {
       <div className="relative mb-8 max-w-xl"><FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes..." className="w-full pl-11" /></div>
       <Section title="Pinned">{pinned.length ? pinned.map((note) => <NoteCard key={note.id} note={note} />) : <p className="text-[var(--muted)]">No pinned notes.</p>}</Section>
       <Section title="All Notes">{all.length ? all.map((note) => <NoteCard key={note.id} note={note} />) : <EmptyState icon={FiFileText} title="No notes yet." text="Create your first note to start capturing ideas." className="max-w-3xl" />}</Section>
+      <Card className="p-5 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-xl font-black">Knowledge Graph</h2>
+            <p className="mt-1 text-[var(--secondary)]">Connect notes with <span className="font-bold text-[var(--gold)]">[[note title]]</span> links.</p>
+          </div>
+          <Button variant="secondary" onClick={data.refreshGraph}>Refresh graph</Button>
+        </div>
+        {(graph.edges || []).length ? (
+          <div className="mt-6 grid gap-5 xl:grid-cols-[1fr_1fr]">
+            <div className="relative min-h-72 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-5">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                {(graph.nodes || []).map((node, index) => (
+                  <button
+                    key={node.id}
+                    onClick={() => openNote(data.notes.find((note) => note.id === node.id) || null)}
+                    className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 text-left transition hover:border-[var(--gold)]/50"
+                    style={{ transform: `translateY(${index % 2 ? 18 : 0}px)` }}
+                  >
+                    <span className="mb-3 block h-2 w-10 rounded-full bg-[var(--gold)]" />
+                    <span className="line-clamp-2 font-black">{node.title}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-3">
+              {(graph.edges || []).map((edge) => (
+                <div key={`${edge.from}-${edge.to}`} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--elevated)] p-3 text-sm">
+                  <span className="font-bold">{nodeById.get(edge.from)?.title || edge.from}</span>
+                  <span className="text-[var(--gold)]">{"->"}</span>
+                  <span className="text-[var(--secondary)]">{nodeById.get(edge.to)?.title || edge.label || edge.to}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <EmptyState icon={FiGrid} title="No note links yet." text="Create links using [[note title]] to build your knowledge graph." className="mt-6 min-h-64" />
+        )}
+      </Card>
     </>
   );
 }
@@ -974,6 +1848,18 @@ function Section({ title, children }) {
 function PriorityBadge({ priority }) {
   const style = priority === "urgent" ? "border-red-500/35 bg-red-500/15 text-red-300" : priority === "high" ? "border-orange-500/35 bg-orange-500/15 text-orange-200" : "border-[var(--border)] bg-white/5 text-[var(--secondary)]";
   return <span className={cls("rounded-md border px-3 py-1 text-sm font-black", style)}>{priority}</span>;
+}
+
+function SyncBadge({ item }) {
+  if (!item?._syncStatus || item._syncStatus === "synced") return null;
+  const styles = {
+    queued: "border-[var(--gold)]/35 bg-[var(--gold-bg)] text-[var(--gold)]",
+    syncing: "border-sky-400/30 bg-sky-400/10 text-sky-200",
+    failed: "border-red-400/30 bg-red-500/10 text-red-200",
+    conflict: "border-orange-400/30 bg-orange-500/10 text-orange-200",
+  };
+  const label = item._syncStatus === "queued" ? "Pending sync" : item._syncStatus;
+  return <span className={cls("inline-flex w-fit items-center rounded-md border px-2 py-1 text-xs font-black uppercase tracking-[0.08em]", styles[item._syncStatus] || styles.queued)}>{label}</span>;
 }
 
 function TaskRow({ task, updateTask, openTask }) {
@@ -1147,6 +2033,178 @@ function TagsPage({ data }) {
   );
 }
 
+function InboxPage({ data, openNote, openTask }) {
+  const [title, setTitle] = useState("");
+  const active = (data.inboxItems || []).filter((item) => item.status === "unprocessed");
+  const capture = (event) => {
+    event.preventDefault();
+    if (!title.trim()) return;
+    const parsed = parseNaturalTask(title);
+    const typeSuggestion = parsed.dueDate || parsed.priority !== "medium" || parsed.recurringRule ? "task" : "idea";
+    data.createInboxItem({ title, typeSuggestion, source: "inbox" });
+    setTitle("");
+  };
+  return (
+    <>
+      <PageHeader title="Inbox" subtitle="Capture now. Decide what it becomes later." action={<Button onClick={() => setTitle("")}><FiPlus /> Capture</Button>} />
+      <Card className="p-5">
+        <form onSubmit={capture} className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Drop a thought, task, habit, or reminder..." />
+          <Button><FiInbox /> Add to Inbox</Button>
+        </form>
+      </Card>
+      <div className="mt-7 grid gap-4 xl:grid-cols-2">
+        {active.length ? active.map((item) => (
+          <Card key={item.id} className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <span className="rounded-md border border-[var(--gold)]/30 bg-[var(--gold-bg)] px-2 py-1 text-xs font-black uppercase text-[var(--gold)]">{item.typeSuggestion}</span>
+                <h2 className="mt-4 break-words text-xl font-black">{item.title}</h2>
+                {item.content && <p className="mt-2 text-[var(--secondary)]">{item.content}</p>}
+              </div>
+              <Button variant="ghost" onClick={() => data.updateInboxItem(item.id, { status: "archived" })}>Archive</Button>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => data.convertInboxItem(item.id, "note").then(() => openNote(null))}>To note</Button>
+              <Button variant="secondary" onClick={() => data.convertInboxItem(item.id, "task").then(() => openTask(null))}>To task</Button>
+              <Button variant="secondary" onClick={() => data.convertInboxItem(item.id, "habit")}>To habit</Button>
+              <Button variant="danger" onClick={() => data.deleteInboxItem(item.id)}>Delete</Button>
+            </div>
+          </Card>
+        )) : <EmptyState icon={FiInbox} title="Your mind is clear." text="Capture anything here when it is too early to organize it." className="xl:col-span-2" />}
+      </div>
+    </>
+  );
+}
+
+function PlannerPage({ data }) {
+  const [form, setForm] = useState({ title: "", startAt: `${todayKey()}T09:00`, endAt: `${todayKey()}T09:30`, taskId: "" });
+  const todaysBlocks = (data.timeBlocks || []).filter((block) => dateOnly(block.startAt) === todayKey()).sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
+  const set = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  return (
+    <>
+      <PageHeader title="Planner" subtitle="Turn tasks into protected time blocks." />
+      <Card className="p-5">
+        <form className="grid gap-3 xl:grid-cols-[1fr_210px_210px_220px_auto]" onSubmit={(event) => { event.preventDefault(); if (!form.title.trim()) return toast.error("Block title is required"); data.createTimeBlock({ ...form, reminderOffsets: [5], reminderChannels: [] }); setForm((current) => ({ ...current, title: "" })); }}>
+          <Input value={form.title} onChange={(event) => set("title", event.target.value)} placeholder="Plan a block..." />
+          <Input type="datetime-local" value={form.startAt} onChange={(event) => set("startAt", event.target.value)} />
+          <Input type="datetime-local" value={form.endAt} onChange={(event) => set("endAt", event.target.value)} />
+          <Select value={form.taskId} onChange={(event) => set("taskId", event.target.value)}><option value="">No linked task</option>{data.tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</Select>
+          <Button><FiPlus /> Schedule</Button>
+        </form>
+      </Card>
+      <Card className="mt-7 p-6">
+        <h2 className="text-xl font-black">Today timeline</h2>
+        <div className="mt-5 space-y-3">
+          {todaysBlocks.length ? todaysBlocks.map((block) => (
+            <div key={block.id} className="grid gap-3 rounded-xl border border-[var(--border)] bg-[var(--elevated)] p-4 sm:grid-cols-[140px_1fr_auto] sm:items-center">
+              <span className="font-black text-[var(--gold)]">{new Date(block.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} - {new Date(block.endAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              <div><p className="font-black">{block.title}</p><p className="text-sm text-[var(--secondary)]">{block.status}</p></div>
+              <Button variant={block.status === "completed" ? "secondary" : "primary"} onClick={() => data.updateTimeBlock(block.id, { status: block.status === "completed" ? "planned" : "completed" })}>{block.status === "completed" ? "Reopen" : "Complete"}</Button>
+            </div>
+          )) : <EmptyState icon={FiClock} title="No blocks planned." text="Schedule your first focused block above." />}
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function ProjectsPage({ data }) {
+  const [project, setProject] = useState({ name: "", description: "", color: gold });
+  return (
+    <>
+      <PageHeader title="Projects" subtitle="Group work into focused outcomes." />
+      <Card className="p-5">
+        <form className="grid gap-3 lg:grid-cols-[1fr_1fr_160px_auto]" onSubmit={(event) => { event.preventDefault(); if (!project.name.trim()) return; data.createProject(project); setProject({ name: "", description: "", color: gold }); }}>
+          <Input value={project.name} onChange={(event) => setProject((current) => ({ ...current, name: event.target.value }))} placeholder="Project name" />
+          <Input value={project.description} onChange={(event) => setProject((current) => ({ ...current, description: event.target.value }))} placeholder="Description" />
+          <div className="flex items-center gap-2">{colors.slice(0, 4).map((item) => <ColorSwatch key={item} color={item} selected={project.color === item} onClick={() => setProject((current) => ({ ...current, color: item }))} />)}</div>
+          <Button><FiPlus /> Add</Button>
+        </form>
+      </Card>
+      <div className="mt-7 grid gap-4 xl:grid-cols-3">
+        {(data.projects || []).length ? data.projects.map((item) => {
+          const tasks = data.tasks.filter((task) => task.projectId === item.id);
+          const done = tasks.filter((task) => task.status === "done").length;
+          const progress = tasks.length ? Math.round((done / tasks.length) * 100) : item.progress || 0;
+          return (
+            <Card key={item.id} className="p-5">
+              <div className="flex items-start justify-between gap-4"><div><span className="block h-3 w-12 rounded-full" style={{ background: item.color }} /><h2 className="mt-4 text-xl font-black">{item.name}</h2><p className="mt-2 text-[var(--secondary)]">{item.description || "No description yet."}</p></div><Button variant="ghost" onClick={() => data.archiveProject(item.id)}>Archive</Button></div>
+              <div className="mt-5 h-2 rounded-full bg-[var(--elevated)]"><span className="block h-2 rounded-full bg-[var(--gold)]" style={{ width: `${progress}%` }} /></div>
+              <p className="mt-3 text-sm text-[var(--secondary)]">{progress}% complete · {tasks.length} tasks</p>
+            </Card>
+          );
+        }) : <EmptyState icon={FiFolder} title="No projects yet." text="Create a project to connect tasks, notes, and focus time." className="xl:col-span-3" />}
+      </div>
+    </>
+  );
+}
+
+function TemplatesPage({ data, openNote, openTask }) {
+  const [form, setForm] = useState({ name: "", type: "note", body: "" });
+  return (
+    <>
+      <PageHeader title="Templates" subtitle="Start repeated work from a polished structure." />
+      <Card className="p-5">
+        <form className="grid gap-3 lg:grid-cols-[1fr_160px_1fr_auto]" onSubmit={(event) => { event.preventDefault(); if (!form.name.trim()) return; data.createTemplate(form); setForm({ name: "", type: "note", body: "" }); }}>
+          <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Template name" />
+          <Select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}><option value="note">note</option><option value="task">task</option><option value="project">project</option><option value="review">review</option></Select>
+          <Input value={form.body} onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))} placeholder="Starter content" />
+          <Button><FiPlus /> Save</Button>
+        </form>
+      </Card>
+      <div className="mt-7 grid gap-4 xl:grid-cols-3">
+        {(data.templates || []).map((template) => (
+          <Card key={template.id} className="p-5">
+            <span className="rounded-md border border-[var(--gold)]/30 bg-[var(--gold-bg)] px-2 py-1 text-xs font-black uppercase text-[var(--gold)]">{template.type}</span>
+            <h2 className="mt-4 text-xl font-black">{template.name}</h2>
+            <p className="mt-2 line-clamp-3 whitespace-pre-line text-[var(--secondary)]">{template.body || "Structured starter template."}</p>
+            <div className="mt-5 flex gap-2">
+              {template.type === "note" && <Button variant="secondary" onClick={() => { data.createNote({ title: template.name, content: template.body, template: template.name }); openNote(null); }}>Use</Button>}
+              {template.type === "task" && <Button variant="secondary" onClick={() => { data.createTask({ title: template.name, description: template.body, ...(template.defaults || {}) }); openTask(null); }}>Use</Button>}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function ReviewsPage({ data, stats }) {
+  const [type, setType] = useState("daily");
+  const [reflection, setReflection] = useState("");
+  const metrics = { completedTasks: stats.completedThisWeek.length, focusMinutes: stats.focusToday, overdueTasks: stats.overdue.length, notesCreated: data.notes.filter((note) => note.createdAt?.slice(0, 10) === todayKey()).length };
+  return (
+    <>
+      <PageHeader title="Reviews" subtitle="Turn activity into reflection and better planning." />
+      <Card className="p-6">
+        <div className="flex flex-wrap gap-3">{["daily", "weekly", "monthly"].map((item) => <Button key={item} variant={type === item ? "primary" : "secondary"} onClick={() => setType(item)}>{item}</Button>)}</div>
+        <div className="mt-6 grid gap-4 sm:grid-cols-4">{Object.entries(metrics).map(([label, value]) => <div key={label} className="rounded-xl border border-[var(--border)] bg-[var(--elevated)] p-4"><p className="text-xs uppercase tracking-[0.14em] text-[var(--secondary)]">{label.replace(/([A-Z])/g, " $1")}</p><strong className="text-3xl">{value}</strong></div>)}</div>
+        <Textarea className="mt-6 w-full" value={reflection} onChange={(event) => setReflection(event.target.value)} placeholder="What worked, what dragged, and what should move forward?" />
+        <Button className="mt-4" onClick={() => { data.createReview({ type, metrics, reflection }); setReflection(""); }}>Save review</Button>
+      </Card>
+      <div className="mt-7 space-y-4">{(data.reviews || []).length ? data.reviews.map((review) => <Card key={review.id} className="p-5"><p className="text-sm font-black uppercase tracking-[0.14em] text-[var(--gold)]">{review.type}</p><p className="mt-2 text-[var(--secondary)]">{review.reflection || "No reflection text."}</p></Card>) : <EmptyState title="No reviews saved." text="Start with today's review to build a planning streak." />}</div>
+    </>
+  );
+}
+
+function ReminderCenterPage({ data }) {
+  const reminders = data.reminders || [];
+  return (
+    <>
+      <PageHeader title="Reminders" subtitle="Review, snooze, and cancel every nudge in one place." />
+      <div className="grid gap-4">
+        {reminders.length ? reminders.map((reminder) => (
+          <Card key={reminder.id} className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div><span className="rounded-md border border-[var(--gold)]/30 bg-[var(--gold-bg)] px-2 py-1 text-xs font-black uppercase text-[var(--gold)]">{reminder.status}</span><h2 className="mt-3 text-xl font-black">{reminder.title}</h2><p className="text-[var(--secondary)]">{new Date(reminder.dueAt).toLocaleString()} · {(reminder.channels || []).join(" + ") || "no channel"}</p>{reminder.lastError && <p className="mt-2 text-red-300">{reminder.lastError}</p>}</div>
+            <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => data.snoozeReminder(reminder.id, 10)}>Snooze 10m</Button><Button variant="secondary" onClick={() => data.snoozeReminder(reminder.id, 1440)}>Tomorrow</Button><Button variant="danger" onClick={() => data.cancelReminder(reminder.id)}>Cancel</Button></div>
+          </Card>
+        )) : <EmptyState icon={FiClock} title="No reminders." text="Add reminders to tasks, notes, habits, or time blocks." />}
+      </div>
+    </>
+  );
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -1154,8 +2212,77 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
 }
 
+function OfflineBanner({ sync }) {
+  if (!sync || (sync.isOnline && !sync.queuedCount && !sync.failedCount && !sync.conflictCount && !sync.isSyncing)) return null;
+  return (
+    <Card className="mb-6 border-[var(--gold)]/25 bg-[var(--gold-bg)] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-black text-[var(--gold)]">{sync.isOnline ? "Sync status" : "You're offline"}</p>
+          <p className="text-sm text-[var(--secondary)]">
+            {sync.isOnline ? "Queued offline changes will sync automatically." : "Changes are stored on this device and will sync when you reconnect."}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          {!!sync.queuedCount && <span className="rounded-md border border-[var(--gold)]/30 px-2 py-1">{sync.queuedCount} queued</span>}
+          {!!sync.failedCount && <span className="rounded-md border border-red-400/30 px-2 py-1 text-red-200">{sync.failedCount} failed</span>}
+          {!!sync.conflictCount && <span className="rounded-md border border-orange-400/30 px-2 py-1 text-orange-200">{sync.conflictCount} conflicts</span>}
+          <Button variant="secondary" onClick={sync.failedCount ? sync.retryFailed : sync.triggerSync} disabled={!sync.isOnline || sync.isSyncing}>
+            {sync.isSyncing ? "Syncing..." : sync.failedCount ? "Retry" : "Sync now"}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function SyncQueuePanel({ sync }) {
+  if (!sync) return null;
+  const visible = sync.queue.filter((item) => item.status !== "synced");
+  return (
+    <Card className="mb-7 p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-xl font-black">Offline Sync</h2>
+          <p className="mt-3 text-[var(--secondary)]">Offline changes are stored only on this device until synced.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={sync.triggerSync} disabled={!sync.isOnline || sync.isSyncing}>{sync.isSyncing ? "Syncing..." : "Retry sync"}</Button>
+          <Button variant="ghost" onClick={sync.clearSynced}>Clear synced history</Button>
+        </div>
+      </div>
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--elevated)] p-4"><p className="text-sm text-[var(--secondary)]">Network</p><strong>{sync.isOnline ? "Online" : "Offline"}</strong></div>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--elevated)] p-4"><p className="text-sm text-[var(--secondary)]">Queued</p><strong>{sync.queuedCount}</strong></div>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--elevated)] p-4"><p className="text-sm text-[var(--secondary)]">Failed</p><strong>{sync.failedCount}</strong></div>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--elevated)] p-4"><p className="text-sm text-[var(--secondary)]">Conflicts</p><strong>{sync.conflictCount}</strong></div>
+      </div>
+      <div className="mt-5 space-y-2">
+        {visible.length ? visible.map((item) => (
+          <div key={item.id} className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--elevated)] p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-black capitalize">{item.operation} {item.entityType}</p>
+              <p className="text-sm text-[var(--secondary)]">{item.status}{item.error ? ` · ${item.error}` : ""}</p>
+            </div>
+            {item.status === "conflict" && (
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={() => sync.resolveConflict(item, "server")}>Keep server</Button>
+                <Button onClick={() => sync.resolveConflict(item, "local")}>Keep local</Button>
+              </div>
+            )}
+          </div>
+        )) : <p className="rounded-xl border border-[var(--border)] bg-[var(--elevated)] p-4 text-[var(--secondary)]">No pending offline operations.</p>}
+      </div>
+    </Card>
+  );
+}
+
 function SettingsPage({ data }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("tasknote.theme") || "amoled");
+  const [importFile, setImportFile] = useState(null);
+  const [importMode, setImportMode] = useState("skipDuplicates");
+  const [importing, setImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState(null);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("tasknote.theme", theme); }, [theme]);
   const settings = data.settings || {};
   const pushSupported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
@@ -1260,6 +2387,65 @@ function SettingsPage({ data }) {
           </label>
         </div>
       </Card>
+      <Card className="mb-7 p-8">
+        <h2 className="text-xl font-black">Data</h2>
+        <p className="mt-3 text-[var(--secondary)]">Export your workspace or safely merge a TaskNote backup into this account.</p>
+        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          <button onClick={data.exportBackup} className="rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-5 text-left transition hover:border-[var(--gold)]/50">
+            <FiDownload className="text-2xl text-[var(--gold)]" />
+            <h3 className="mt-4 font-black">Full backup JSON</h3>
+            <p className="mt-1 text-sm text-[var(--secondary)]">Export notes, tasks, projects, reminders, reviews, and settings.</p>
+          </button>
+          <button onClick={data.exportNotesMarkdown} className="rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-5 text-left transition hover:border-[var(--gold)]/50">
+            <FiFileText className="text-2xl text-[var(--gold)]" />
+            <h3 className="mt-4 font-black">Notes Markdown</h3>
+            <p className="mt-1 text-sm text-[var(--secondary)]">Download notes as a single Markdown archive.</p>
+          </button>
+          <button onClick={data.exportTasksCsv} className="rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-5 text-left transition hover:border-[var(--gold)]/50">
+            <FiCheckSquare className="text-2xl text-[var(--gold)]" />
+            <h3 className="mt-4 font-black">Tasks CSV</h3>
+            <p className="mt-1 text-sm text-[var(--secondary)]">Export task status, priority, due dates, and estimates.</p>
+          </button>
+        </div>
+        <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-5">
+          <h3 className="font-black">Import backup</h3>
+          <p className="mt-1 text-sm text-[var(--secondary)]">Imported records are assigned to this user. Existing data is not overwritten silently.</p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_190px_auto]">
+            <Input type="file" accept="application/json,.json" onChange={(event) => setImportFile(event.target.files?.[0] || null)} />
+            <Select value={importMode} onChange={(event) => setImportMode(event.target.value)}>
+              <option value="skipDuplicates">Skip duplicates</option>
+              <option value="merge">Merge all</option>
+            </Select>
+            <Button
+              disabled={!importFile || importing}
+              onClick={async () => {
+                if (!window.confirm("Import this backup into your current TaskNote account?")) return;
+                setImporting(true);
+                try {
+                  const summary = await data.importBackup(importFile, importMode);
+                  setImportSummary(summary);
+                } catch (error) {
+                  toast.error(getErrorMessage(error, "Import failed"));
+                } finally {
+                  setImporting(false);
+                }
+              }}
+            >
+              <FiUpload /> {importing ? "Importing..." : "Import"}
+            </Button>
+          </div>
+          {importSummary && (
+            <div className="mt-4 grid gap-2 text-sm text-[var(--secondary)] sm:grid-cols-2 lg:grid-cols-3">
+              {Object.entries(importSummary).map(([key, value]) => (
+                <span key={key} className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2">
+                  <strong className="text-[var(--text)]">{key}</strong>: {value.created || 0} created, {value.skipped || 0} skipped, {value.failed || 0} failed
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>
+      <SyncQueuePanel sync={data.offlineSync} />
       <Card className="p-8"><h2 className="text-xl font-black">About</h2><div className="mt-5 flex gap-4"><span className="grid h-12 w-12 place-items-center rounded-lg bg-[var(--gold-bg)] text-[var(--gold)]"><FiZap /></span><div><h3 className="font-black">TaskNote</h3><p className="max-w-3xl text-[var(--secondary)]">A productivity workspace that combines notes, tasks, calendar, focus, habits, tags, and analytics. Built for people who like their tools considered.</p></div></div><p className="mt-6 border-t border-[var(--border)] pt-4 text-[var(--secondary)]">Press <kbd>⌘K</kbd> anywhere to open the quick command bar.</p></Card>
     </>
   );
@@ -1292,14 +2478,20 @@ function WorkspaceShell({ page }) {
 
   const screen = {
     dashboard: <DashboardPage data={data} stats={stats} />,
+    inbox: <InboxPage data={data} openNote={openNote} openTask={openTask} />,
     notes: <NotesPage data={data} openNote={openNote} />,
     tasks: <TasksPage data={data} updateTask={data.updateTask} deleteTask={data.deleteTask} openTask={openTask} />,
     board: <div className="no-scrollbar -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0"><BoardPage data={data} updateTask={data.updateTask} openTask={openTask} /></div>,
     calendar: <CalendarPage data={data} openTask={openTask} />,
+    planner: <PlannerPage data={data} />,
+    projects: <ProjectsPage data={data} />,
     focus: <FocusPage data={data} stats={stats} createSession={data.createSession} />,
     analytics: <AnalyticsPage data={data} stats={stats} />,
     habits: <HabitsPage data={data} />,
     tags: <TagsPage data={data} />,
+    templates: <TemplatesPage data={data} openNote={openNote} openTask={openTask} />,
+    reviews: <ReviewsPage data={data} stats={stats} />,
+    reminders: <ReminderCenterPage data={data} />,
     settings: <SettingsPage data={data} />,
   }[page] || <DashboardPage data={data} stats={stats} />;
 
@@ -1307,12 +2499,15 @@ function WorkspaceShell({ page }) {
     <div className="min-h-screen bg-[var(--app-bg)] text-[var(--text)]">
       <Sidebar user={user} openQuickAdd={() => setCommandOpen(true)} />
       <main className="min-h-screen max-w-full overflow-x-hidden px-4 py-7 pb-28 sm:px-6 lg:ml-72 lg:px-8 xl:px-10">
-        <div className="mx-auto w-full max-w-[1280px]">{screen}</div>
+        <div className="mx-auto w-full max-w-[1280px]">
+          <OfflineBanner sync={data.offlineSync} />
+          {screen}
+        </div>
       </main>
       <MobileNav openQuickAdd={() => setCommandOpen(true)} />
-      <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} openNote={() => openNote(null)} openTask={() => openTask(null)} />
+      <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} openNote={() => openNote(null)} openTask={() => openTask(null)} data={data} />
       <Modal open={noteModal.open} title={noteModal.note ? "Edit note" : "New note"} onClose={() => setNoteModal({ open: false, note: null })}>
-        <NoteForm note={noteModal.note} onSave={(payload) => noteModal.note ? data.updateNote(noteModal.note.id, payload) : data.createNote(payload)} onDelete={data.deleteNote} onClose={() => setNoteModal({ open: false, note: null })} />
+        <NoteForm note={noteModal.note} notes={data.notes} onSave={(payload) => noteModal.note ? data.updateNote(noteModal.note.id, payload) : data.createNote(payload)} onDelete={data.deleteNote} onClose={() => setNoteModal({ open: false, note: null })} />
       </Modal>
       <Modal open={taskModal.open} title={taskModal.task ? "Edit task" : "New task"} onClose={() => setTaskModal({ open: false, task: null })}>
         <TaskForm task={taskModal.task} onSave={(payload) => taskModal.task ? data.updateTask(taskModal.task.id, payload) : data.createTask(payload)} onDelete={data.deleteTask} onClose={() => setTaskModal({ open: false, task: null })} />

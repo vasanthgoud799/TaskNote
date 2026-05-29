@@ -3,8 +3,7 @@ import mongoose from "mongoose";
 const projectSchema = new mongoose.Schema(
   {
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      type: String,
       required: true,
       index: true,
     },
@@ -26,9 +25,8 @@ const projectSchema = new mongoose.Schema(
       default: "sky",
     },
     parentProjectId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Project",
-      default: null,
+      type: String,
+      default: "",
     },
     archived: {
       type: Boolean,

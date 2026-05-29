@@ -51,6 +51,10 @@ const taskSchema = new mongoose.Schema(
     recurring: {
       frequency: { type: String, enum: ["none", "daily", "weekly", "monthly", "custom"], default: "none" },
       interval: { type: Number, default: 1 },
+      daysOfWeek: { type: [Number], default: [] },
+      endDate: { type: Date, default: null },
+      nextRunAt: { type: Date, default: null },
+      enabled: { type: Boolean, default: false },
     },
     reminderAt: { type: Date, default: null },
     reminderOffsets: { type: [Number], default: [] },
