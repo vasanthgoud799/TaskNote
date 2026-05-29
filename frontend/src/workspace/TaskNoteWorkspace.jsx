@@ -1089,6 +1089,73 @@ function Select({ className = "", ...props }) {
   return <select className={cls("h-11 min-w-0 max-w-full rounded-lg border border-[var(--border)] bg-[var(--elevated)] px-4 text-[var(--text)] outline-none focus:border-[var(--gold)]", className)} {...props} />;
 }
 
+function ComposerSection({ eyebrow, title, helper, icon: Icon, children, className = "" }) {
+  return (
+    <section className={cls("rounded-2xl border border-[var(--border)] bg-[#101010]/80 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:p-5", className)}>
+      {(title || helper) && (
+        <div className="mb-4 flex items-start gap-3">
+          {Icon && <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[var(--gold)]/20 bg-[var(--gold-bg)] text-[var(--gold)]"><Icon /></span>}
+          <div className="min-w-0">
+            {eyebrow && <p className="text-[11px] font-black uppercase tracking-[0.28em] text-[var(--gold)]">{eyebrow}</p>}
+            {title && <h3 className="mt-1 text-base font-black text-[var(--text)] sm:text-lg">{title}</h3>}
+            {helper && <p className="mt-1 text-sm leading-6 text-[var(--secondary)]">{helper}</p>}
+          </div>
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
+function ComposerField({ label, helper, children, className = "" }) {
+  return (
+    <label className={cls("block min-w-0", className)}>
+      <span className="mb-2 block text-sm font-black text-[var(--secondary)]">{label}</span>
+      {children}
+      {helper && <span className="mt-2 block text-xs leading-5 text-[var(--muted)]">{helper}</span>}
+    </label>
+  );
+}
+
+function SelectableChip({ checked, onChange, children, name }) {
+  return (
+    <label className={cls(
+      "inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-bold transition active:scale-[0.98]",
+      checked
+        ? "border-[var(--gold)] bg-[var(--gold-bg)] text-[var(--gold)] shadow-[0_0_0_1px_rgba(230,185,87,0.12)]"
+        : "border-[var(--border)] bg-[var(--card)] text-[var(--secondary)] hover:border-[var(--gold)]/40 hover:text-[var(--text)]"
+    )}>
+      <input
+        type="checkbox"
+        name={name}
+        checked={checked}
+        onChange={onChange}
+        className="sr-only"
+      />
+      <span className={cls("grid h-4 w-4 place-items-center rounded border text-[10px]", checked ? "border-[var(--gold)] bg-[var(--gold)] text-black" : "border-[var(--muted)]")}>
+        {checked && <FiCheck />}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function FormFooterActions({ isEdit, onDelete, onClose, submitLabel = "Save" }) {
+  return (
+    <div className="sticky bottom-0 z-10 -mx-5 -mb-5 mt-6 flex flex-col gap-3 border-t border-[var(--border)] bg-[#101010]/95 px-5 py-4 backdrop-blur sm:-mx-9 sm:-mb-7 sm:flex-row sm:items-center sm:justify-between sm:px-9">
+      {isEdit ? (
+        <Button type="button" variant="danger" onClick={onDelete} className="w-full sm:w-auto"><FiTrash2 /> Delete</Button>
+      ) : (
+        <p className="hidden text-sm text-[var(--muted)] sm:block">Changes are saved to your protected workspace.</p>
+      )}
+      <div className="flex flex-col-reverse gap-3 sm:flex-row">
+        <Button type="button" variant="secondary" onClick={onClose} className="w-full sm:w-auto">Cancel</Button>
+        <Button type="submit" className="w-full min-w-36 shadow-[0_14px_34px_rgba(230,185,87,0.16)] sm:w-auto"><FiCheck /> {submitLabel}</Button>
+      </div>
+    </div>
+  );
+}
+
 function ColorSwatch({ color, selected, size = "h-8 w-8", onClick }) {
   return (
     <button
@@ -1120,39 +1187,54 @@ function ReminderControls({ value, onChange, label = "Reminder" }) {
     set({ [field]: list.includes(item) ? list.filter((value) => value !== item) : [...list, item] });
   };
   return (
-    <div className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-4">
-      <label className="block text-sm font-black uppercase tracking-[0.14em] text-[var(--secondary)]">{label}</label>
-      <Input
-        className="mt-3 w-full"
-        type="datetime-local"
-        value={current.reminderAt}
-        onChange={(event) => set({ reminderAt: event.target.value })}
-      />
-      <div className="mt-4 grid min-w-0 gap-4 sm:grid-cols-2">
+    <ComposerSection
+      icon={FiClock}
+      eyebrow="Reminder"
+      title={label}
+      helper="Choose when TaskNote should nudge you and which channel should deliver it."
+      className="border-[var(--gold)]/20 bg-[linear-gradient(145deg,rgba(230,185,87,0.08),rgba(16,16,16,0.92)_42%)]"
+    >
+      <ComposerField label="Reminder time" helper="Leave empty to skip reminders for this item.">
+        <Input
+          className="h-12 w-full rounded-xl bg-black/30 focus:shadow-[0_0_0_3px_rgba(230,185,87,0.12)]"
+          type="datetime-local"
+          value={current.reminderAt}
+          onChange={(event) => set({ reminderAt: event.target.value })}
+        />
+      </ComposerField>
+      <div className="mt-5 grid min-w-0 gap-5 lg:grid-cols-2">
         <div className="min-w-0">
-          <p className="mb-2 text-sm font-bold text-[var(--secondary)]">Timing</p>
-          <div className="flex flex-wrap gap-x-4 gap-y-2">
+          <p className="mb-3 text-sm font-black text-[var(--secondary)]">Timing</p>
+          <div className="flex flex-wrap gap-2">
             {[30, 5, 1, 0].map((offset) => (
-              <label key={offset} className="inline-flex items-center gap-2 text-sm text-[var(--secondary)]">
-                <input type="checkbox" checked={current.reminderOffsets.includes(offset)} onChange={() => toggle("reminderOffsets", offset)} />
+              <SelectableChip
+                key={offset}
+                name={`reminder-offset-${offset}`}
+                checked={current.reminderOffsets.includes(offset)}
+                onChange={() => toggle("reminderOffsets", offset)}
+              >
                 {offset === 0 ? "At due time" : `${offset} min before`}
-              </label>
+              </SelectableChip>
             ))}
           </div>
         </div>
         <div className="min-w-0">
-          <p className="mb-2 text-sm font-bold text-[var(--secondary)]">Channels</p>
-          <div className="flex flex-wrap gap-x-4 gap-y-2">
+          <p className="mb-3 text-sm font-black text-[var(--secondary)]">Channels</p>
+          <div className="flex flex-wrap gap-2">
             {["push", "email"].map((channel) => (
-              <label key={channel} className="inline-flex items-center gap-2 text-sm text-[var(--secondary)]">
-                <input type="checkbox" checked={current.reminderChannels.includes(channel)} onChange={() => toggle("reminderChannels", channel)} />
-                {channel}
-              </label>
+              <SelectableChip
+                key={channel}
+                name={`reminder-channel-${channel}`}
+                checked={current.reminderChannels.includes(channel)}
+                onChange={() => toggle("reminderChannels", channel)}
+              >
+                {channel === "push" ? "Push" : "Email"}
+              </SelectableChip>
             ))}
           </div>
         </div>
       </div>
-    </div>
+    </ComposerSection>
   );
 }
 
@@ -1282,17 +1364,38 @@ function useStats(data) {
 
 function Modal({ open, title, children, onClose }) {
   if (!open) return null;
+  const isTask = title.toLowerCase().includes("task");
+  const isEdit = title.toLowerCase().includes("edit");
+  const helper = isTask
+    ? "Capture the work, set the plan, and stay on track."
+    : "Shape the thought, connect the context, and revisit it later.";
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-black/70 p-2 backdrop-blur-sm sm:p-4" onMouseDown={onClose}>
-      <div className="flex max-h-[calc(100dvh-1rem)] w-full max-w-[min(48rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-[28px]" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-7 sm:py-5">
+    <div className="fixed inset-0 z-50 grid items-end overflow-hidden bg-black/75 p-0 backdrop-blur-md sm:place-items-center sm:p-4" onMouseDown={onClose}>
+      <div
+        className="flex max-h-[calc(100dvh-0.5rem)] w-full max-w-[min(60rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-t-[28px] border border-[var(--border)] bg-[radial-gradient(circle_at_top_left,rgba(230,185,87,0.08),transparent_28%),var(--card)] shadow-[0_30px_120px_rgba(0,0,0,0.72)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-[30px]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-5 sm:px-9 sm:py-6">
           <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-[var(--gold)]">TaskNote</p>
-            <h2 className="mt-2 truncate text-2xl font-black">{title}</h2>
+            <p className="text-xs font-black uppercase tracking-[0.42em] text-[var(--gold)]">TaskNote</p>
+            <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1">
+              <h2 className="text-3xl font-black leading-none tracking-[-0.03em] text-[var(--text)] sm:text-4xl">{title}</h2>
+              <span className="mb-1 rounded-full border border-[var(--gold)]/25 bg-[var(--gold-bg)] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-[var(--gold)]">
+                {isEdit ? "Edit" : "New"} {isTask ? "task" : "note"}
+              </span>
+            </div>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--secondary)]">{helper}</p>
           </div>
-          <Button variant="secondary" className="h-11 w-11 shrink-0 rounded-full p-0 sm:h-12 sm:w-12" onClick={onClose}><FiX /></Button>
+          <button
+            type="button"
+            aria-label={`Close ${title}`}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-[var(--border)] bg-white/[0.03] text-[var(--secondary)] transition hover:border-[var(--gold)]/45 hover:bg-[var(--gold-bg)] hover:text-[var(--gold)] focus:outline-none focus:ring-2 focus:ring-[var(--gold)]/40 sm:h-11 sm:w-11"
+            onClick={onClose}
+          >
+            <FiX />
+          </button>
         </div>
-        <div className="min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-7">{children}</div>
+        <div className="no-scrollbar min-h-0 overflow-y-auto overscroll-contain p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:p-7 sm:px-9">{children}</div>
       </div>
     </div>
   );
@@ -1349,27 +1452,53 @@ function NoteForm({ note, notes = [], onSave, onDelete, onClose }) {
     if (templates[value]) setContent(templates[value]);
   };
   return (
-    <form className="min-w-0 space-y-4" onSubmit={(event) => { event.preventDefault(); if (!title.trim()) return toast.error("Title is required"); onSave({ title, content, pinned, template, ...reminder }); onClose(); }}>
-      <label className="block text-sm font-bold text-[var(--secondary)]">Note title</label>
-      <Input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Capture an idea..." className="w-full" />
-      <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-        <Select value={template} onChange={(event) => applyTemplate(event.target.value)}>
-          <option value="">Blank note</option>
-          <option value="meeting">Meeting notes</option>
-          <option value="journal">Daily journal</option>
-          <option value="study">Study notes</option>
-          <option value="project">Project plan</option>
-          <option value="bug">Bug report</option>
-          <option value="ideas">Ideas list</option>
-          <option value="weekly">Weekly review</option>
-        </Select>
-        <Button type="button" variant="secondary" onClick={() => setPreview((value) => !value)}>{preview ? "Edit" : "Preview"}</Button>
-      </div>
-      <label className="block text-sm font-bold text-[var(--secondary)]">Content</label>
-      {preview ? <MarkdownPreview content={content} /> : <Textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write with Markdown or link notes using [[note title]]..." className="w-full" />}
-      <label className="flex items-center gap-3 text-sm font-bold text-[var(--secondary)]"><input type="checkbox" checked={pinned} onChange={(event) => setPinned(event.target.checked)} /> Pin note</label>
+    <form className="min-w-0 space-y-5" onSubmit={(event) => { event.preventDefault(); if (!title.trim()) return toast.error("Title is required"); onSave({ title, content, pinned, template, ...reminder }); onClose(); }}>
+      <ComposerSection icon={FiFileText} eyebrow="Main note" title="Write it down" helper="Start with a clear title, then add Markdown, checklists, or [[linked notes]].">
+        <ComposerField label="Note title">
+          <Input
+            autoFocus
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Capture an idea..."
+            className="h-14 w-full rounded-2xl bg-black/30 text-lg font-bold focus:shadow-[0_0_0_3px_rgba(230,185,87,0.12)]"
+          />
+        </ComposerField>
+        <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <ComposerField label="Template" className="mb-0">
+            <Select value={template} onChange={(event) => applyTemplate(event.target.value)} className="h-12 rounded-xl bg-black/30">
+              <option value="">Blank note</option>
+              <option value="meeting">Meeting notes</option>
+              <option value="journal">Daily journal</option>
+              <option value="study">Study notes</option>
+              <option value="project">Project plan</option>
+              <option value="bug">Bug report</option>
+              <option value="ideas">Ideas list</option>
+              <option value="weekly">Weekly review</option>
+            </Select>
+          </ComposerField>
+          <div className="self-end">
+            <Button type="button" variant="secondary" className="h-12 w-full sm:w-auto" onClick={() => setPreview((value) => !value)}>{preview ? "Edit" : "Preview"}</Button>
+          </div>
+        </div>
+        <ComposerField label="Content" helper="Markdown is supported. Use [[note title]] to create backlinks." className="mt-4">
+          {preview ? (
+            <MarkdownPreview content={content} />
+          ) : (
+            <Textarea
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="# Project thought&#10;&#10;Write the rough version here..."
+              className="min-h-[220px] w-full rounded-2xl bg-black/30 leading-7 focus:shadow-[0_0_0_3px_rgba(230,185,87,0.12)]"
+            />
+          )}
+        </ComposerField>
+        <div className="mt-4">
+          <SelectableChip checked={pinned} onChange={(event) => setPinned(event.target.checked)} name="pin-note">Pin note</SelectableChip>
+        </div>
+      </ComposerSection>
       {(linksTo.length > 0 || linkedFrom.length > 0) && (
-        <div className="grid gap-3 rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-4 sm:grid-cols-2">
+        <ComposerSection icon={FiRepeat} eyebrow="Knowledge" title="Linked thinking" helper="Backlinks update from the note content as you write.">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <p className="text-sm font-black uppercase tracking-[0.14em] text-[var(--gold)]">Links to</p>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -1383,13 +1512,13 @@ function NoteForm({ note, notes = [], onSave, onDelete, onClose }) {
             </div>
           </div>
         </div>
+        </ComposerSection>
       )}
       {note && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-4">
+        <ComposerSection icon={FiClock} eyebrow="History" title="Version history" helper="Preview and restore earlier note snapshots without leaving the composer.">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-black uppercase tracking-[0.14em] text-[var(--gold)]">Version History</p>
-              <p className="mt-1 text-sm text-[var(--secondary)]">Restore an earlier note snapshot.</p>
+              <p className="text-sm text-[var(--secondary)]">Restore an earlier note snapshot.</p>
             </div>
             <Button type="button" variant="secondary" onClick={() => setShowVersions((value) => !value)}>{showVersions ? "Hide" : "Show"}</Button>
           </div>
@@ -1424,13 +1553,15 @@ function NoteForm({ note, notes = [], onSave, onDelete, onClose }) {
               ))}
             </div>
           )}
-        </div>
+        </ComposerSection>
       )}
       <ReminderControls value={reminder} onChange={setReminder} label="Revisit reminder" />
-      <div className="flex flex-col gap-3 border-t border-[var(--border)] pt-5 sm:flex-row sm:justify-between">
-        {note ? <Button type="button" variant="danger" onClick={() => { onDelete(note.id); onClose(); }}><FiTrash2 /> Delete</Button> : <span />}
-        <div className="flex flex-col gap-3 sm:flex-row"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit"><FiCheck /> Save</Button></div>
-      </div>
+      <FormFooterActions
+        isEdit={Boolean(note)}
+        onDelete={() => { onDelete(note.id); onClose(); }}
+        onClose={onClose}
+        submitLabel={note ? "Save note" : "Create note"}
+      />
     </form>
   );
 }
@@ -1446,47 +1577,98 @@ function TaskForm({ task, onSave, onDelete, onClose }) {
     dependencies: form.dependenciesText.split(",").map((item) => item.trim()).filter(Boolean),
   });
   return (
-    <form className="min-w-0 space-y-4" onSubmit={(event) => { event.preventDefault(); if (!form.title.trim()) return toast.error("Task title is required"); onSave(payload()); onClose(); }}>
+    <form className="min-w-0 space-y-5" onSubmit={(event) => { event.preventDefault(); if (!form.title.trim()) return toast.error("Task title is required"); onSave(payload()); onClose(); }}>
       {!task && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--elevated)] p-4">
-          <label className="text-sm font-black uppercase tracking-[0.14em] text-[var(--gold)]">Natural language</label>
-          <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
-            <Input value={natural} onChange={(event) => setNatural(event.target.value)} placeholder="Submit report tomorrow 5pm high priority" />
-            <Button type="button" variant="secondary" onClick={() => { const parsed = parseNaturalTask(natural); setForm((current) => ({ ...current, ...parsed })); }}>Preview parse</Button>
+        <ComposerSection icon={FiZap} eyebrow="Smart capture" title="Natural language task" helper="Paste a rough task and TaskNote will extract date, priority, reminders, and recurrence where possible.">
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <Input
+              value={natural}
+              onChange={(event) => setNatural(event.target.value)}
+              placeholder="Submit report tomorrow 5pm high priority"
+              className="h-12 rounded-xl bg-black/30 focus:shadow-[0_0_0_3px_rgba(230,185,87,0.12)]"
+            />
+            <Button type="button" variant="secondary" className="h-12" onClick={() => { const parsed = parseNaturalTask(natural); setForm((current) => ({ ...current, ...parsed })); }}>Preview parse</Button>
           </div>
           {natural && <p className="mt-3 text-sm text-[var(--secondary)]">TaskNote will parse date, priority, reminders, and recurrence before saving.</p>}
-        </div>
+        </ComposerSection>
       )}
-      <Input autoFocus value={form.title} onChange={(event) => set("title", event.target.value)} placeholder="Task title" className="w-full" />
-      <Textarea value={form.description} onChange={(event) => set("description", event.target.value)} placeholder="Description" className="w-full" />
-      <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Select value={form.status} onChange={(event) => set("status", event.target.value)}><option value="todo">todo</option><option value="doing">doing</option><option value="done">done</option></Select>
-        <Select value={form.priority} onChange={(event) => set("priority", event.target.value)}><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="urgent">urgent</option></Select>
-        <Input type="date" value={form.dueDate} onChange={(event) => set("dueDate", event.target.value)} />
-        <Input type="number" min="1" value={form.estimatedMinutes} onChange={(event) => set("estimatedMinutes", event.target.value)} placeholder="Estimate" />
-      </div>
-      <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-        <Textarea value={form.subtasksText} onChange={(event) => set("subtasksText", event.target.value)} placeholder="Subtasks, one per line" className="min-h-24" />
-        <div className="min-w-0 space-y-3">
-          <Input value={form.dependenciesText} onChange={(event) => set("dependenciesText", event.target.value)} placeholder="Blocked by task IDs, comma separated" className="w-full" />
-          <Select value={form.recurringRule} onChange={(event) => set("recurringRule", event.target.value)}>
-            <option value="">No recurring</option>
-            <option value="daily">Daily</option>
-            <option value="weekdays">Weekdays</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-          </Select>
+      <ComposerSection icon={FiCheckSquare} eyebrow="Main task" title="Define the work" helper="Give the task a clear outcome and enough context to make the next action obvious.">
+        <ComposerField label="Task title">
+          <Input
+            autoFocus
+            value={form.title}
+            onChange={(event) => set("title", event.target.value)}
+            placeholder="Draft the launch checklist"
+            className="h-14 w-full rounded-2xl bg-black/30 text-lg font-bold focus:shadow-[0_0_0_3px_rgba(230,185,87,0.12)]"
+          />
+        </ComposerField>
+        <ComposerField label="Description" helper="Add context, success criteria, links, or the first next step." className="mt-4">
+          <Textarea
+            value={form.description}
+            onChange={(event) => set("description", event.target.value)}
+            placeholder="What needs to happen? What would make this task complete?"
+            className="min-h-[150px] w-full rounded-2xl bg-black/30 leading-7 focus:shadow-[0_0_0_3px_rgba(230,185,87,0.12)]"
+          />
+        </ComposerField>
+      </ComposerSection>
+      <ComposerSection icon={FiCalendar} eyebrow="Planning" title="Schedule and prioritize" helper="These details drive the dashboard, calendar, board, reminders, and analytics.">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <ComposerField label="Status">
+            <Select className="h-12 rounded-xl bg-black/30" value={form.status} onChange={(event) => set("status", event.target.value)}><option value="todo">todo</option><option value="doing">doing</option><option value="done">done</option></Select>
+          </ComposerField>
+          <ComposerField label="Priority">
+            <Select className="h-12 rounded-xl bg-black/30" value={form.priority} onChange={(event) => set("priority", event.target.value)}><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="urgent">urgent</option></Select>
+          </ComposerField>
+          <ComposerField label="Due date">
+            <Input className="h-12 rounded-xl bg-black/30" type="date" value={form.dueDate} onChange={(event) => set("dueDate", event.target.value)} />
+          </ComposerField>
+          <ComposerField label="Estimate" helper="Minutes">
+            <Input className="h-12 rounded-xl bg-black/30" type="number" min="1" value={form.estimatedMinutes} onChange={(event) => set("estimatedMinutes", event.target.value)} placeholder="25" />
+          </ComposerField>
         </div>
-      </div>
-      <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm font-bold text-[var(--secondary)]">
-        <label className="flex items-center gap-2"><input type="checkbox" checked={form.important} onChange={(event) => set("important", event.target.checked)} /> Important</label>
-        <label className="flex items-center gap-2"><input type="checkbox" checked={form.urgent} onChange={(event) => set("urgent", event.target.checked)} /> Urgent</label>
-      </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <SelectableChip checked={form.important} onChange={(event) => set("important", event.target.checked)} name="task-important">Important</SelectableChip>
+          <SelectableChip checked={form.urgent} onChange={(event) => set("urgent", event.target.checked)} name="task-urgent">Urgent</SelectableChip>
+        </div>
+      </ComposerSection>
+      <ComposerSection icon={FiRepeat} eyebrow="Advanced" title="Break it down" helper="Use subtasks, dependencies, and recurrence for work that needs more structure.">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+          <ComposerField label="Subtasks" helper="One subtask per line.">
+            <Textarea
+              value={form.subtasksText}
+              onChange={(event) => set("subtasksText", event.target.value)}
+              placeholder="Research options&#10;Draft outline&#10;Send for review"
+              className="min-h-36 rounded-2xl bg-black/30 leading-7 focus:shadow-[0_0_0_3px_rgba(230,185,87,0.12)]"
+            />
+          </ComposerField>
+          <div className="min-w-0 space-y-4">
+            <ComposerField label="Dependencies" helper="Enter task IDs separated by commas if this task is blocked by other work.">
+              <Input
+                value={form.dependenciesText}
+                onChange={(event) => set("dependenciesText", event.target.value)}
+                placeholder="Blocked by task IDs, comma separated"
+                className="h-12 w-full rounded-xl bg-black/30"
+              />
+            </ComposerField>
+            <ComposerField label="Recurrence" helper={form.recurringRule ? "A new occurrence will be scheduled when this task is completed." : "Keep this empty for one-off tasks."}>
+              <Select className="h-12 rounded-xl bg-black/30" value={form.recurringRule} onChange={(event) => set("recurringRule", event.target.value)}>
+                <option value="">No recurring</option>
+                <option value="daily">Daily</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </Select>
+            </ComposerField>
+          </div>
+        </div>
+      </ComposerSection>
       <ReminderControls value={form} onChange={(next) => setForm((current) => ({ ...current, ...next }))} />
-      <div className="flex flex-col gap-3 border-t border-[var(--border)] pt-5 sm:flex-row sm:justify-between">
-        {task ? <Button type="button" variant="danger" onClick={() => { onDelete(task.id); onClose(); }}><FiTrash2 /> Delete</Button> : <span />}
-        <div className="flex flex-col gap-3 sm:flex-row"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit"><FiCheck /> Save</Button></div>
-      </div>
+      <FormFooterActions
+        isEdit={Boolean(task)}
+        onDelete={() => { onDelete(task.id); onClose(); }}
+        onClose={onClose}
+        submitLabel={task ? "Save task" : "Create task"}
+      />
     </form>
   );
 }
